@@ -63,19 +63,23 @@ client.on('messageCreate', message => {
         if (queue.length === 0) {
             return message.channel.send("The queue is empty!");
         }
-    
+
         let pingMessage = 'The game is ready! Players:\n';
-        queue.forEach(player => {
-            pingMessage += `<@${player.id}> `;
+        const playerPromises = queue.map(async (player) => {
+            const elo = await fetchElo(player.id);  // Fetch the ELO score for each player
+            console.log(`Fetched ELO for ${player.id}: ${elo}`); // Log fetched ELO
+            pingMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;  // Display the ELO score
         });
-    
-        message.channel.send(pingMessage);
-    
-        // Optionally clear the queue after starting
-        queue.length = 0;
-    
-        // Optionally show updated (empty) queue
-        sendQueueEmbed(message, "Queue cleared after game start:");
+
+        // Wait for all ELO scores to be fetched
+        Promise.all(playerPromises).then(() => {
+            message.channel.send(pingMessage);
+            queue.length = 0; // Optionally clear the queue after starting
+            sendQueueEmbed(message, "Queue cleared after game start:");
+        }).catch(err => {
+            console.error("Error fetching ELO scores:", err);
+            message.channel.send("There was an error fetching the ELO scores.");
+        });
     }
     // Command to leave the queue
     if (message.content === '!del') {
@@ -116,6 +120,24 @@ client.on('messageCreate', message => {
 
         // Call the function to display the queue
         sendQueueEmbed(message, "Current Queue:");
+    }
+    async function fetchElo(playerId) {
+        const browser = await puppeteer.launch({ headless: true });
+        const page = await browser.newPage();
+    
+        const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
+        await page.goto(playerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    
+        const elo = await page.evaluate(() => {
+            const textContent = document.body.textContent;
+            const match = textContent.match(/ELO Score\s*:\s*(\d+)/);
+    
+            return match ? match[1] : null;
+        });
+    
+        await browser.close();
+    
+        return elo;
     }
 
     // Command to remove a specific user from the queue
