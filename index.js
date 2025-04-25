@@ -25,30 +25,8 @@ app.listen(port, () => {
 
 const queue = []; // Global array for players in the queue
 const maxSlots = 10; // Max number of players in the queue
-const axios = require('axios');
-const cheerio = require('cheerio');
 
-async function fetchEloFromStats(username) {
-    try {
-        const url = `https://stats.firstbloodgaming.com/player/${username}`;
-        const { data } = await axios.get(url);
-        const $ = cheerio.load(data);
 
-        let elo = null;
-
-        $('.row').each((_, element) => {
-            const label = $(element).find('.row-property').text().trim();
-            if (label.toLowerCase() === 'elo score') {
-                elo = $(element).find('.row-description').text().trim();
-            }
-        });
-
-        return elo;
-    } catch (error) {
-        console.error(`Error fetching ELO for ${username}:`, error.message);
-        return null;
-    }
-}
 client.on('messageCreate', message => {
     // Ignore messages from the bot itself
     if (message.author.bot) return;
