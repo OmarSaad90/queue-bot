@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const express = require('express'); // Import express to handle port binding for web service
+const puppeteer = require('puppeteer');
+const express = require('express');
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -12,13 +13,12 @@ const client = new Client({
 
 // Express web server to bind to a port
 const app = express();
-const port = process.env.PORT || 3000; // Use the port from environment variables (Render will provide this)
+const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('Bot is running!');
 });
 
-// Start the web server (This will allow your app to bind to a port on Render)
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
 });
@@ -26,7 +26,35 @@ app.listen(port, () => {
 const queue = []; // Global array for players in the queue
 const maxSlots = 10; // Max number of players in the queue
 
-client.on('messageCreate', message => {
+// Fetch ELO using Puppeteer
+async function fetchElo(playerId) {
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+
+    const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
+    await page.goto(playerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // Search for ELO Score in the page text using regex
+    const elo = await page.evaluate(() => {
+        const textContent = document.body.textContent; // Get the entire text of the page
+        const match = textContent.match(/ELO Score\s*:\s*(\d+)/);  // Regex to find the ELO Score
+
+        // Return the ELO score if found, otherwise return null
+        return match ? match[1] : null;
+    });
+
+    await browser.close();
+
+    if (elo) {
+        console.log(`ELO Score for player ${playerId}: ${elo}`);
+        return elo;
+    } else {
+        console.log(`ELO Score not found for player ${playerId}`);
+        return null;
+    }
+}
+
+client.on('messageCreate', async (message) => {
     // Ignore messages from the bot itself
     if (message.author.bot) return;
 
@@ -62,79 +90,32 @@ client.on('messageCreate', message => {
         if (queue.length === 0) {
             return message.channel.send("The queue is empty!");
         }
-    
+
         let pingMessage = 'The game is ready! Players:\n';
-        queue.forEach(player => {
+        for (let player of queue) {
             pingMessage += `<@${player.id}> `;
-        });
-    
+        }
+
         message.channel.send(pingMessage);
-    
+
+        // Fetch ELOs for each player in the queue using Puppeteer
+        let eloMessages = '';
+        for (let player of queue) {
+            const playerName = player.id; // Adjust this if playerId is not the Discord ID
+            const elo = await fetchElo(playerName);
+            eloMessages += `<@${player.id}>: ELO - ${elo || 'Not found'}\n`;
+        }
+
+        message.channel.send(eloMessages);
+
         // Optionally clear the queue after starting
         queue.length = 0;
-    
+
         // Optionally show updated (empty) queue
         sendQueueEmbed(message, "Queue cleared after game start:");
     }
-    // Command to leave the queue
-    if (message.content === '!del') {
-        // Check if the user is in the queue
-        const index = queue.findIndex(player => player.id === message.author.id);
-        if (index === -1) {
-            return message.channel.send(`${message.author.tag}, you are not in the queue!`);
-        }
 
-        // Remove user from the queue
-        queue.splice(index, 1);
-
-        // Call the function to display the queue
-        sendQueueEmbed(message, "Current Queue:");
-    }
-
-    // Command to view the current queue
-    if (message.content === '!rg') {
-        sendQueueEmbed(message, "Current Queue:");
-    }
-    if (message.content.startsWith('!add')) {
-        // Get the user mentioned (or user ID)
-        const userToAdd = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-
-        // Check if the user is already in the queue
-        if (queue.some(player => player.id === userToAdd.id)) {
-            return message.channel.send(`${userToAdd.tag} is already in the queue!`);
-        }
-
-        // Check if the queue is full
-        if (queue.length >= maxSlots) {
-            return message.channel.send(`The queue is full! (${maxSlots} players max)`);
-        }
-
-        // Add user to the queue
-        queue.push(userToAdd);
-        message.channel.send(`${userToAdd.tag} has been added to the queue!`);
-
-        // Call the function to display the queue
-        sendQueueEmbed(message, "Current Queue:");
-    }
-
-    // Command to remove a specific user from the queue
-    if (message.content.startsWith('!remove')) {
-        // Get the user mentioned (or user ID)
-        const userToRemove = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-
-        // Check if the user is in the queue
-        const index = queue.findIndex(player => player.id === userToRemove.id);
-        if (index === -1) {
-            return message.channel.send(`${userToRemove.tag} is not in the queue!`);
-        }
-
-        // Remove user from the queue
-        queue.splice(index, 1);
-        message.channel.send(`${userToRemove.tag} has been removed from the queue!`);
-
-        // Call the function to display the queue
-        sendQueueEmbed(message, "Current Queue:");
-    }
+    // Other commands like !del, !rg, !add, !remove...
 });
 
 // Function to display the queue in an embed format with timer
