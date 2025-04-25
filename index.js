@@ -62,31 +62,48 @@ client.on('messageCreate', message => {
     client.on('messageCreate', async (message) => {
         if (message.author.bot) return; // Ignore bot messages
     
+        // !start command
         if (message.content === '!start') {
+            // Check if the queue is empty
             if (queue.length === 0) {
-                return message.channel.send("The queue is empty!");
+                return message.channel.send("The queue is empty! Please add players to the queue.");
             }
     
             let pingMessage = 'The game is ready! Players:\n';
-            const playerPromises = queue.map(async (player) => {
+    
+            // Filter the queue to include only players (ignore empty slots)
+            const playersInQueue = queue.filter(player => player.id);
+    
+            // Map over the queue to fetch ELOs for each player
+            const playerPromises = playersInQueue.map(async (player) => {
                 const elo = await fetchElo(player.id);  // Fetch the ELO score for each player
                 console.log(`Fetched ELO for ${player.id}: ${elo}`); // Log fetched ELO
-                pingMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;  // Display the ELO score
+                pingMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;  // Display the ELO score for the player
             });
     
             try {
                 // Wait for all ELO scores to be fetched
                 await Promise.all(playerPromises);
-                await message.channel.send(pingMessage); // Send the message only once
-                queue.length = 0; // Clear the queue after the game starts
+    
+                // Send the message only once
+                await message.channel.send(pingMessage);
+    
+                // Clear the queue after the game starts
+                queue.length = 0;
+    
+                // Optionally send another message about clearing the queue after the game starts
                 sendQueueEmbed(message, "Queue cleared after game start:");
-                await message.delete(); // Clean up after the command
+    
+                // Optionally, delete the command message to clean up the chat
+                await message.delete(); // This deletes the command message. If you don't want to delete it, remove this line.
             } catch (err) {
+                // Catch and log any errors while fetching ELO scores
                 console.error("Error fetching ELO scores:", err);
                 await message.channel.send("There was an error fetching the ELO scores.");
             }
         }
     });
+    
     // Command to leave the queue
     if (message.content === '!del') {
         // Check if the user is in the queue
