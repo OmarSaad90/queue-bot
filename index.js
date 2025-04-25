@@ -1,5 +1,6 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const express = require('express'); // Import express to handle port binding for web service
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -7,6 +8,19 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers
     ]
+});
+
+// Express web server to bind to a port
+const app = express();
+const port = process.env.PORT || 3000; // Use the port from environment variables (Render will provide this)
+
+app.get('/', (req, res) => {
+    res.send('Bot is running!');
+});
+
+// Start the web server (This will allow your app to bind to a port on Render)
+app.listen(port, () => {
+    console.log(`Web server is listening on port ${port}`);
 });
 
 const queue = []; // Global array for players in the queue
@@ -22,29 +36,27 @@ client.on('messageCreate', message => {
         if (queue.some(player => player.id === message.author.id)) {
             return message.channel.send(`${message.author.tag}, you are already in the queue!`);
         }
-    
+
         // Check if the queue is full
         if (queue.length >= maxSlots) {
             message.channel.send(`The queue is full! (${maxSlots} players max)`);
-    
+
             // Ping all players
             let pingMessage = 'The queue is now full! Playing: \n';
             queue.forEach(player => {
                 pingMessage += `<@${player.id}> `;
             });
             message.channel.send(pingMessage);
-    
+
             queue.length = 0;
             return;
         }
-    
+
         // Add to queue
         queue.push({ id: message.author.id, joinTime: Date.now() });
-        
-    
+
         sendQueueEmbed(message, "Current Queue:");
     }
-    
 
     // Command to leave the queue
     if (message.content === '!del') {
@@ -56,7 +68,6 @@ client.on('messageCreate', message => {
 
         // Remove user from the queue
         queue.splice(index, 1);
-        
 
         // Call the function to display the queue
         sendQueueEmbed(message, "Current Queue:");
@@ -106,18 +117,10 @@ client.on('messageCreate', message => {
         // Call the function to display the queue
         sendQueueEmbed(message, "Current Queue:");
     }
-}
-);
+});
 
-
-
-
-
-const { EmbedBuilder } = require('discord.js');
 // Function to display the queue in an embed format with timer
 function sendQueueEmbed(message) {
-    const maxSlots = 10;
-
     const team1 = [];
     const team2 = [];
 
@@ -143,7 +146,6 @@ function sendQueueEmbed(message) {
 
     const embed = new EmbedBuilder()
         .setColor(0x00AE86)
-        
         .setDescription(`Current queue **${queue.length} / ${maxSlots}**`)
         .addFields(
             { name: 'Team 1', value: team1.join('\n'), inline: true },
@@ -154,6 +156,7 @@ function sendQueueEmbed(message) {
 
     message.channel.send({ embeds: [embed] });
 }
+
 // Function to format the queue time into minutes
 function formatQueueTime(joinTime) {
     const currentTime = Date.now();
