@@ -58,6 +58,24 @@ client.on('messageCreate', message => {
         sendQueueEmbed(message, "Current Queue:");
     }
 
+    if (message.content === '!start') {
+        if (queue.length === 0) {
+            return message.channel.send("The queue is empty!");
+        }
+    
+        let pingMessage = 'The game is ready! Players:\n';
+        queue.forEach(player => {
+            pingMessage += `<@${player.id}> `;
+        });
+    
+        message.channel.send(pingMessage);
+    
+        // Optionally clear the queue after starting
+        queue.length = 0;
+    
+        // Optionally show updated (empty) queue
+        sendQueueEmbed(message, "Queue cleared after game start:");
+    }
     // Command to leave the queue
     if (message.content === '!del') {
         // Check if the user is in the queue
