@@ -71,14 +71,23 @@ client.on('messageCreate', message => {
     
             let pingMessage = 'The game is ready! Players:\n';
     
-            // Filter the queue to include only players (ignore empty slots)
-            const playersInQueue = queue.filter(player => player.id);
+            // Filter the queue to include only players (ignore empty slots or invalid data)
+            const playersInQueue = queue.filter(player => player && player.id);
     
-            // Map over the queue to fetch ELOs for each player
+            if (playersInQueue.length === 0) {
+                return message.channel.send("There are no valid players in the queue.");
+            }
+    
+            // Map over the valid players to fetch ELO scores for each player
             const playerPromises = playersInQueue.map(async (player) => {
-                const elo = await fetchElo(player.id);  // Fetch the ELO score for each player
-                console.log(`Fetched ELO for ${player.id}: ${elo}`); // Log fetched ELO
-                pingMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;  // Display the ELO score for the player
+                try {
+                    const elo = await fetchElo(player.id);  // Fetch the ELO score for each player
+                    console.log(`Fetched ELO for ${player.id}: ${elo}`); // Log fetched ELO
+                    pingMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;  // Display the ELO score for the player
+                } catch (error) {
+                    console.error(`Error fetching ELO for ${player.id}:`, error);
+                    pingMessage += `<@${player.id}> (ELO: Error fetching score)\n`;
+                }
             });
     
             try {
