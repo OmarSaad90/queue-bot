@@ -205,16 +205,35 @@ async function fetchElo(playerId) {
         const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
         await page.goto(playerUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
+        // Get the entire page content as text
+        const pageContent = await page.content();
+        
+        // Use regex to find the ELO score
+        const eloRegex = /ELO Score:\s*(\d+)/i;
+        const match = pageContent.match(eloRegex);
+        
+        if (match && match[1]) {
+            return match[1];
+        }
+        
+        // Alternative method if the above fails
         const elo = await page.evaluate(() => {
-            // Try multiple ways to find ELO
-            const eloElement = document.querySelector('.elo-score') || 
-                             document.querySelector('[class*="elo"]') ||
-                             Array.from(document.querySelectorAll('*'))
-                                .find(el => el.textContent.includes('ELO Score'));
+            // Search through all text nodes in the document
+            const walker = document.createTreeWalker(
+                document.body,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
             
-            if (eloElement) {
-                const match = eloElement.textContent.match(/\d+/);
-                return match ? match[0] : null;
+            let node;
+            while (node = walker.nextNode()) {
+                if (node.textContent.includes('ELO Score:')) {
+                    const match = node.textContent.match(/ELO Score:\s*(\d+)/i);
+                    if (match && match[1]) {
+                        return match[1];
+                    }
+                }
             }
             return null;
         });
