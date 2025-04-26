@@ -29,45 +29,68 @@ const maxSlots = 10;
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+
+    if (!cooldowns.has(message.author.id)) {
+        cooldowns.set(message.author.id, new Map());
+    }
+
+const now = Date.now();
+    const timestamps = cooldowns.get(message.author.id);
+    const cooldownAmount = 2000;
+    
+    if (timestamps.has(message.content)) {
+        const expirationTime = timestamps.get(message.content) + cooldownAmount;
+        if (now < expirationTime) {
+            return message.reply(`Please wait ${((expirationTime - now) / 1000).toFixed(1)} more seconds before using this command again.`)
+                .then(msg => setTimeout(() => msg.delete(), 3000));
+        }
+    }
+
+    timestamps.set(message.content, now);
+    setTimeout(() => timestamps.delete(message.content), cooldownAmount);
     // Command to join the queue
     if (message.content === '!q') {
         if (queue.some(player => player.id === message.author.id)) {
-            return message.channel.send(`${message.author.tag}, you are already in the queue!`);
+            return message.channel.send(`${message.author}, you are already in the queue!`)
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         if (queue.length >= maxSlots) {
-            message.channel.send(`The queue is full! (${maxSlots} players max)`);
-
+            const fullMessage = await message.channel.send(`The queue is full! (${maxSlots} players max)`);
+            
             let pingMessage = 'The queue is now full! Playing: \n';
             queue.forEach(player => {
                 pingMessage += `<@${player.id}> `;
             });
-            message.channel.send(pingMessage);
-
+            
+            await message.channel.send(pingMessage);
             queue.length = 0;
+            
+            setTimeout(() => fullMessage.delete(), 5000);
             return;
         }
 
         queue.push({ id: message.author.id, joinTime: Date.now() });
-        sendQueueEmbed(message, "Current Queue:");
+        await sendQueueEmbed(message, "Current Queue:");
+        return;
     }
 
     // !start command
     if (message.content === '!start') {
         if (queue.length === 0) {
-            return message.channel.send("The queue is empty! Please add players to the queue.");
+            return message.channel.send("The queue is empty! Please add players to the queue.")
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
-        let pingMessage = 'The game is ready! Players:\n';
         const playersInQueue = queue.filter(player => player && player.id);
-
         if (playersInQueue.length === 0) {
-            return message.channel.send("There are no valid players in the queue.");
+            return message.channel.send("There are no valid players in the queue.")
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         try {
-            // Fetch all ELOs first
-            const playerInfos = await Promise.all(playersInQueue.map(async (player) => {
+            let pingMessage = 'The game is ready! Players:\n';
+            const eloFetchPromises = playersInQueue.map(async (player) => {
                 try {
                     const elo = await fetchElo(player.id);
                     return { id: player.id, elo: elo || 'N/A' };
@@ -75,21 +98,23 @@ client.on('messageCreate', async message => {
                     console.error(`Error fetching ELO for ${player.id}:`, error);
                     return { id: player.id, elo: 'Error fetching score' };
                 }
-            }));
+            });
 
-            // Build the message after all ELOs are fetched
+            const playerInfos = await Promise.all(eloFetchPromises);
             playerInfos.forEach(player => {
                 pingMessage += `<@${player.id}> (ELO: ${player.elo})\n`;
             });
 
             await message.channel.send(pingMessage);
             queue.length = 0;
-            sendQueueEmbed(message, "Queue cleared after game start:");
+            await sendQueueEmbed(message, "Queue cleared after game start:");
             await message.delete().catch(console.error);
         } catch (err) {
-            console.error("Error processing !start command:", err);
-            await message.channel.send("There was an error processing the command.");
+            console.error("Error in !start command:", err);
+            await message.channel.send("There was an error processing the command.")
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
+        return;
     }
 
     // Command to leave the queue
@@ -143,32 +168,53 @@ client.on('messageCreate', async message => {
 async function fetchElo(playerId) {
     let browser;
     try {
-        browser = await puppeteer.launch({ 
+        browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Recommended for server environments
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu'
+            ]
         });
+
         const page = await browser.newPage();
-        
-        // Set a reasonable timeout
-        await page.setDefaultNavigationTimeout(60000);
-        
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setDefaultNavigationTimeout(30000);
+
         const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
-        await page.goto(playerUrl, { waitUntil: 'networkidle2' });
+        await page.goto(playerUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
         const elo = await page.evaluate(() => {
-            const textContent = document.body.textContent;
-            const match = textContent.match(/ELO Score\s*:\s*(\d+)/);
-            return match ? match[1] : null;
+            // Try multiple ways to find ELO in case the page structure changes
+            const eloElement = document.querySelector('.elo-score') || 
+                             document.querySelector('[class*="elo"]') ||
+                             Array.from(document.querySelectorAll('*'))
+                                .find(el => el.textContent.includes('ELO Score'));
+            
+            if (eloElement) {
+                const match = eloElement.textContent.match(/\d+/);
+                return match ? match[0] : null;
+            }
+            return null;
         });
 
-        if (!elo) throw new Error("ELO not found on page");
-        
+        if (!elo) {
+            throw new Error('ELO not found on page');
+        }
+
         return elo;
     } catch (error) {
-        console.error(`Error fetching ELO for ${playerId}:`, error);
-        throw error; // Re-throw to handle in the calling function
+        console.error(`Failed to fetch ELO for ${playerId}:`, error);
+        throw error;
     } finally {
-        if (browser) await browser.close().catch(console.error);
+        if (browser) {
+            await browser.close().catch(console.error);
+        }
     }
 }
 
