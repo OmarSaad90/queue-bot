@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer'); // Added missing import
 
 const client = new Client({
     intents: [
@@ -14,194 +14,207 @@ const client = new Client({
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('Bot is running!');
+});
+
+app.listen(port, () => {
+    console.log(`Web server is listening on port ${port}`);
+});
+
 const queue = [];
 const maxSlots = 10;
-const cooldowns = new Map();
 
-// Web server
-app.get('/', (req, res) => res.send('Bot is running!'));
-app.listen(port, () => console.log(`Web server listening on port ${port}`));
-
-// Message handler (ONLY ONE)
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Cooldown system
-    if (!cooldowns.has(message.author.id)) {
-        cooldowns.set(message.author.id, new Map());
+    // Command to join the queue
+    if (message.content === '!q') {
+        if (queue.some(player => player.id === message.author.id)) {
+            return message.channel.send(`${message.author.tag}, you are already in the queue!`);
+        }
+
+        if (queue.length >= maxSlots) {
+            message.channel.send(`The queue is full! (${maxSlots} players max)`);
+
+            let pingMessage = 'The queue is now full! Playing: \n';
+            queue.forEach(player => {
+                pingMessage += `<@${player.id}> `;
+            });
+            message.channel.send(pingMessage);
+
+            queue.length = 0;
+            return;
+        }
+
+        queue.push({ id: message.author.id, joinTime: Date.now() });
+        sendQueueEmbed(message, "Current Queue:");
     }
 
-    const now = Date.now();
-    const timestamps = cooldowns.get(message.author.id);
-    const cooldownAmount = 2000;
+    // !start command
+    if (message.content === '!start') {
+        if (queue.length === 0) {
+            return message.channel.send("The queue is empty! Please add players to the queue.");
+        }
 
-    if (timestamps.has(message.content)) {
-        const expirationTime = timestamps.get(message.content) + cooldownAmount;
-        if (now < expirationTime) {
-            return message.reply(`Please wait ${((expirationTime - now) / 1000).toFixed(1)} more seconds before using this command again.`)
-                .then(msg => setTimeout(() => msg.delete(), 3000));
+        let pingMessage = 'The game is ready! Players:\n';
+        const playersInQueue = queue.filter(player => player && player.id);
+
+        if (playersInQueue.length === 0) {
+            return message.channel.send("There are no valid players in the queue.");
+        }
+
+        try {
+            // Fetch all ELOs first
+            const playerInfos = await Promise.all(playersInQueue.map(async (player) => {
+                try {
+                    const elo = await fetchElo(player.id);
+                    return { id: player.id, elo: elo || 'N/A' };
+                } catch (error) {
+                    console.error(`Error fetching ELO for ${player.id}:`, error);
+                    return { id: player.id, elo: 'Error fetching score' };
+                }
+            }));
+
+            // Build the message after all ELOs are fetched
+            playerInfos.forEach(player => {
+                pingMessage += `<@${player.id}> (ELO: ${player.elo})\n`;
+            });
+
+            await message.channel.send(pingMessage);
+            queue.length = 0;
+            sendQueueEmbed(message, "Queue cleared after game start:");
+            await message.delete().catch(console.error);
+        } catch (err) {
+            console.error("Error processing !start command:", err);
+            await message.channel.send("There was an error processing the command.");
         }
     }
 
-    timestamps.set(message.content, now);
-    setTimeout(() => timestamps.delete(message.content), cooldownAmount);
+    // Command to leave the queue
+    if (message.content === '!del') {
+        const index = queue.findIndex(player => player.id === message.author.id);
+        if (index === -1) {
+            return message.channel.send(`${message.author.tag}, you are not in the queue!`);
+        }
 
-    // Command router
-    switch (true) {
-        case message.content === '!q':
-            return handleQueueJoin(message);
-        case message.content === '!start':
-            return handleGameStart(message);
-        case message.content === '!del':
-            return handleQueueLeave(message);
-        case message.content === '!rg':
-            return sendQueueEmbed(message);
-        case message.content.startsWith('!add'):
-            return handleAddPlayer(message);
-        case message.content.startsWith('!remove'):
-            return handleRemovePlayer(message);
+        queue.splice(index, 1);
+        sendQueueEmbed(message, "Current Queue:");
+    }
+
+    // Command to view the current queue
+    if (message.content === '!rg') {
+        sendQueueEmbed(message, "Current Queue:");
+    }
+
+    if (message.content.startsWith('!add')) {
+        const userToAdd = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
+        if (!userToAdd) return message.channel.send("Please mention a user or provide a valid user ID.");
+
+        if (queue.some(player => player.id === userToAdd.id)) {
+            return message.channel.send(`${userToAdd.tag} is already in the queue!`);
+        }
+
+        if (queue.length >= maxSlots) {
+            return message.channel.send(`The queue is full! (${maxSlots} players max)`);
+        }
+
+        queue.push({ id: userToAdd.id, joinTime: Date.now() });
+        message.channel.send(`${userToAdd.tag} has been added to the queue!`);
+        sendQueueEmbed(message, "Current Queue:");
+    }
+
+    if (message.content.startsWith('!remove')) {
+        const userToRemove = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
+        if (!userToRemove) return message.channel.send("Please mention a user or provide a valid user ID.");
+
+        const index = queue.findIndex(player => player.id === userToRemove.id);
+        if (index === -1) {
+            return message.channel.send(`${userToRemove.tag} is not in the queue!`);
+        }
+
+        queue.splice(index, 1);
+        message.channel.send(`${userToRemove.tag} has been removed from the queue!`);
+        sendQueueEmbed(message, "Current Queue:");
     }
 });
 
-// Command handlers
-async function handleQueueJoin(message) {
-    if (queue.some(p => p.id === message.author.id)) {
-        return message.channel.send(`${message.author}, you're already in queue!`)
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    if (queue.length >= maxSlots) {
-        const pingMessage = queue.map(p => `<@${p.id}>`).join(' ');
-        await message.channel.send(`Queue full! Playing:\n${pingMessage}`);
-        queue.length = 0;
-        return;
-    }
-
-    queue.push({ id: message.author.id, joinTime: Date.now() });
-    await sendQueueEmbed(message);
-}
-
-async function handleGameStart(message) {
-    if (queue.length === 0) {
-        return message.channel.send("Queue is empty!")
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    let resultMessage = 'Game ready!\n';
-    for (const player of queue) {
-        try {
-            const elo = await fetchElo(player.id);
-            resultMessage += `<@${player.id}> (ELO: ${elo || 'N/A'})\n`;
-        } catch {
-            resultMessage += `<@${player.id}> (ELO: Unavailable)\n`;
-        }
-    }
-
-    await message.channel.send(resultMessage);
-    queue.length = 0;
-    await message.delete().catch(console.error);
-}
-
-async function handleQueueLeave(message) {
-    const index = queue.findIndex(p => p.id === message.author.id);
-    if (index === -1) {
-        return message.channel.send(`${message.author}, you're not in queue!`)
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    queue.splice(index, 1);
-    await sendQueueEmbed(message);
-}
-
-async function handleAddPlayer(message) {
-    const user = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-    if (!user) {
-        return message.channel.send("Please mention a user!")
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    if (queue.some(p => p.id === user.id)) {
-        return message.channel.send(`${user} is already in queue!`)
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    if (queue.length >= maxSlots) {
-        return message.channel.send(`Queue is full (${maxSlots} max)!`)
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    queue.push({ id: user.id, joinTime: Date.now() });
-    await message.channel.send(`${user} was added to queue!`);
-    await sendQueueEmbed(message);
-}
-
-async function handleRemovePlayer(message) {
-    const user = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-    if (!user) {
-        return message.channel.send("Please mention a user!")
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    const index = queue.findIndex(p => p.id === user.id);
-    if (index === -1) {
-        return message.channel.send(`${user} isn't in queue!`)
-            .then(m => setTimeout(() => m.delete(), 5000));
-    }
-
-    queue.splice(index, 1);
-    await message.channel.send(`${user} was removed from queue!`);
-    await sendQueueEmbed(message);
-}
-
-// ELO Fetcher (Simplified)
 async function fetchElo(playerId) {
     let browser;
     try {
-        browser = await puppeteer.launch({
+        browser = await puppeteer.launch({ 
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Recommended for server environments
         });
-
         const page = await browser.newPage();
-        await page.goto(`https://stats.firstbloodgaming.com/player/${playerId}`, {
-            waitUntil: 'networkidle2',
-            timeout: 30000
+        
+        // Set a reasonable timeout
+        await page.setDefaultNavigationTimeout(60000);
+        
+        const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
+        await page.goto(playerUrl, { waitUntil: 'networkidle2' });
+
+        const elo = await page.evaluate(() => {
+            const textContent = document.body.textContent;
+            const match = textContent.match(/ELO Score\s*:\s*(\d+)/);
+            return match ? match[1] : null;
         });
 
-        const content = await page.content();
-        const match = content.match(/ELO Score:\s*(\d+)/i);
-        return match ? match[1] : null;
+        if (!elo) throw new Error("ELO not found on page");
+        
+        return elo;
+    } catch (error) {
+        console.error(`Error fetching ELO for ${playerId}:`, error);
+        throw error; // Re-throw to handle in the calling function
     } finally {
         if (browser) await browser.close().catch(console.error);
     }
 }
 
-// Queue display
-async function sendQueueEmbed(message, title = "Current Queue") {
-    const team1 = queue.slice(0, 5).map((p, i) => 
-        `${(i + 1).toString().padStart(2, '0')}. <@${p.id}> (${formatQueueTime(p.joinTime)})` || 'Empty'
-    );
-    
-    const team2 = queue.slice(5).map((p, i) => 
-        `${(i + 6).toString().padStart(2, '0')}. <@${p.id}> (${formatQueueTime(p.joinTime)})` || 'Empty'
-    );
+function sendQueueEmbed(message) {
+    const team1 = [];
+    const team2 = [];
+
+    for (let i = 0; i < 5; i++) {
+        const player = queue[i];
+        if (player) {
+            const time = formatQueueTime(player.joinTime);
+            team1.push(`${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${time})`);
+        } else {
+            team1.push(`${(i + 1).toString().padStart(2, '0')}. Empty`);
+        }
+    }
+
+    for (let i = 5; i < 10; i++) {
+        const player = queue[i];
+        if (player) {
+            const time = formatQueueTime(player.joinTime);
+            team2.push(`${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${time})`);
+        } else {
+            team2.push(`${(i + 1).toString().padStart(2, '0')}. Empty`);
+        }
+    }
 
     const embed = new EmbedBuilder()
         .setColor(0x00AE86)
-        .setTitle(title)
+        .setDescription(`Current queue **${queue.length} / ${maxSlots}**`)
         .addFields(
-            { name: 'Team 1', value: team1.join('\n') || 'Empty', inline: true },
+            { name: 'Team 1', value: team1.join('\n'), inline: true },
             { name: '\u200B', value: '\u200B', inline: true },
-            { name: 'Team 2', value: team2.join('\n') || 'Empty', inline: true }
+            { name: 'Team 2', value: team2.join('\n'), inline: true }
         )
-        .setFooter({ text: `${queue.length}/${maxSlots} players` });
+        .setTimestamp();
 
-    await message.channel.send({ embeds: [embed] });
+    message.channel.send({ embeds: [embed] });
 }
 
+// Function to format the queue time into minutes
 function formatQueueTime(joinTime) {
-    const minutes = Math.floor((Date.now() - joinTime) / 60000);
-    return `${minutes}m`;
+    const currentTime = Date.now();
+    const timeInQueue = currentTime - joinTime; // Time in milliseconds
+    const minutes = Math.floor(timeInQueue / 60000); // Convert to minutes
+    return `${minutes}m`; // Return the time in minutes
 }
 
 client.login(process.env.DISCORD_TOKEN);
