@@ -80,43 +80,36 @@ client.on('messageCreate', async message => {
     // !start command
     if (message.content === '!start') {
         if (queue.length === 0) {
-            return message.channel.send("The queue is empty! Please add players to the queue.")
-                .then(msg => setTimeout(() => msg.delete(), 5000));
+            return message.channel.send("Queue is empty!").then(m => setTimeout(() => m.delete(), 5000));
         }
-
-        const playersInQueue = queue.filter(player => player && player.id);
-        if (playersInQueue.length === 0) {
-            return message.channel.send("There are no valid players in the queue.")
-                .then(msg => setTimeout(() => msg.delete(), 5000));
+    
+        let pingMessage = 'Game ready! Players:\n';
+        const errors = [];
+        
+        // Process all players sequentially to avoid rate limiting
+        for (const player of queue) {
+            try {
+                const elo = await fetchElo(player.id);
+                pingMessage += `<@${player.id}> (ELO: ${elo})\n`;
+            } catch {
+                pingMessage += `<@${player.id}> (ELO: Unavailable)\n`;
+                errors.push(player.id);
+            }
         }
-
-        try {
-            let pingMessage = 'The game is ready! Players:\n';
-            const eloFetchPromises = playersInQueue.map(async (player) => {
-                try {
-                    const elo = await fetchElo(player.id);
-                    return { id: player.id, elo: elo || 'N/A' };
-                } catch (error) {
-                    console.error(`Error fetching ELO for ${player.id}:`, error);
-                    return { id: player.id, elo: 'Error fetching score' };
-                }
-            });
-
-            const playerInfos = await Promise.all(eloFetchPromises);
-            playerInfos.forEach(player => {
-                pingMessage += `<@${player.id}> (ELO: ${player.elo})\n`;
-            });
-
-            await message.channel.send(pingMessage);
-            queue.length = 0;
-            await sendQueueEmbed(message, "Queue cleared after game start:");
-            await message.delete().catch(console.error);
-        } catch (err) {
-            console.error("Error in !start command:", err);
-            await message.channel.send("There was an error processing the command.")
-                .then(msg => setTimeout(() => msg.delete(), 5000));
+    
+        // Send ONE message with all players
+        const sentMsg = await message.channel.send(pingMessage);
+        
+        // Clear queue only after successful message send
+        queue.length = 0; 
+        
+        // Delete command message if possible
+        await message.delete().catch(console.error);
+    
+        // Log any errors
+        if (errors.length) {
+            console.log('Failed to fetch ELO for:', errors);
         }
-        return;
     }
 
     // Command to leave the queue
@@ -180,115 +173,36 @@ client.on('messageCreate', async message => {
         return;
     }
 });
-
 async function fetchElo(playerId) {
     let browser;
     try {
-        // Launch Puppeteer with more reliable settings
+        // 1. Launch Puppeteer with minimal configuration
         browser = await puppeteer.launch({
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
-            ],
-            timeout: 60000
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
         const page = await browser.newPage();
         
-        // Set realistic viewport and user agent
-        await page.setViewport({ width: 1280, height: 800 });
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        
-        // Set longer timeouts
-        await page.setDefaultNavigationTimeout(60000);
-        await page.setDefaultTimeout(30000);
-
+        // 2. Navigate to the player stats page
         const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
-        
-        console.log(`Fetching ELO from: ${playerUrl}`); // Debug log
-        
-        // Navigate to page with multiple wait conditions
-        await page.goto(playerUrl, {
-            waitUntil: ['domcontentloaded', 'networkidle0'],
-            timeout: 60000
-        });
+        await page.goto(playerUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Wait a bit for dynamic content to load
-        await page.waitForTimeout(2000);
-
-        // METHOD 1: Try direct regex on page content first
-        const pageContent = await page.content();
-        const directRegex = /ELO Score:\s*([\d,]+)/i;
-        const directMatch = pageContent.match(directRegex);
+        // 3. Get the entire page content as text
+        const content = await page.content();
         
-        if (directMatch && directMatch[1]) {
-            return directMatch[1].replace(',', ''); // Remove commas if present
+        // 4. Use simple, direct regex to find ELO
+        const eloMatch = content.match(/ELO Score:\s*(\d+)/i);
+        if (eloMatch && eloMatch[1]) {
+            return eloMatch[1];
         }
 
-        // METHOD 2: Try evaluating in page context with multiple selectors
-        const elo = await page.evaluate(() => {
-            // Try to find by common class names or data attributes
-            const possibleSelectors = [
-                '[class*="elo"]',
-                '[class*="rating"]',
-                '[class*="score"]',
-                '.player-stats',
-                '.stat-value',
-                '.profile-stats'
-            ];
-
-            // Check each selector for ELO information
-            for (const selector of possibleSelectors) {
-                const elements = Array.from(document.querySelectorAll(selector));
-                for (const el of elements) {
-                    const text = el.textContent || '';
-                    const match = text.match(/ELO Score:\s*([\d,]+)/i);
-                    if (match) return match[1].replace(',', '');
-                }
-            }
-
-            // Fallback: Search all text nodes
-            const textNodes = [];
-            const walker = document.createTreeWalker(
-                document.body,
-                NodeFilter.SHOW_TEXT,
-                null,
-                false
-            );
-
-            let node;
-            while (node = walker.nextNode()) {
-                if (node.textContent.includes('ELO Score:')) {
-                    const match = node.textContent.match(/ELO Score:\s*([\d,]+)/i);
-                    if (match) return match[1].replace(',', '');
-                }
-            }
-
-            return null;
-        });
-
-        if (!elo) {
-            // Save screenshot for debugging
-            await page.screenshot({ path: `debug_${playerId}.png` });
-            console.log('Saved debug screenshot');
-            throw new Error('ELO not found on page');
-        }
-
-        return elo;
+        throw new Error('ELO not found in page content');
     } catch (error) {
-        console.error(`Failed to fetch ELO for ${playerId}:`, error);
+        console.error(`ELO fetch error for ${playerId}:`, error);
         throw error;
     } finally {
-        if (browser) {
-            await browser.close().catch(console.error);
-        }
+        if (browser) await browser.close();
     }
 }
 
