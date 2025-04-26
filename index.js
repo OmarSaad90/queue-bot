@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const puppeteer = require('puppeteer'); 
+const puppeteer = require('puppeteer');
 
 const client = new Client({
     intents: [
@@ -25,19 +25,20 @@ app.listen(port, () => {
 
 const queue = [];
 const maxSlots = 10;
+const cooldowns = new Map(); // Initialize cooldowns map
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-
+    // Cooldown system
     if (!cooldowns.has(message.author.id)) {
         cooldowns.set(message.author.id, new Map());
     }
 
-const now = Date.now();
+    const now = Date.now();
     const timestamps = cooldowns.get(message.author.id);
-    const cooldownAmount = 2000;
-    
+    const cooldownAmount = 2000; // 2 seconds cooldown
+
     if (timestamps.has(message.content)) {
         const expirationTime = timestamps.get(message.content) + cooldownAmount;
         if (now < expirationTime) {
@@ -48,6 +49,7 @@ const now = Date.now();
 
     timestamps.set(message.content, now);
     setTimeout(() => timestamps.delete(message.content), cooldownAmount);
+
     // Command to join the queue
     if (message.content === '!q') {
         if (queue.some(player => player.id === message.author.id)) {
@@ -121,47 +123,61 @@ const now = Date.now();
     if (message.content === '!del') {
         const index = queue.findIndex(player => player.id === message.author.id);
         if (index === -1) {
-            return message.channel.send(`${message.author.tag}, you are not in the queue!`);
+            return message.channel.send(`${message.author}, you are not in the queue!`)
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         queue.splice(index, 1);
-        sendQueueEmbed(message, "Current Queue:");
+        await sendQueueEmbed(message, "Current Queue:");
+        return;
     }
 
     // Command to view the current queue
     if (message.content === '!rg') {
-        sendQueueEmbed(message, "Current Queue:");
+        await sendQueueEmbed(message, "Current Queue:");
+        return;
     }
 
     if (message.content.startsWith('!add')) {
         const userToAdd = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-        if (!userToAdd) return message.channel.send("Please mention a user or provide a valid user ID.");
+        if (!userToAdd) {
+            return message.channel.send("Please mention a user or provide a valid user ID.")
+                .then(msg => setTimeout(() => msg.delete(), 5000));
+        }
 
         if (queue.some(player => player.id === userToAdd.id)) {
-            return message.channel.send(`${userToAdd.tag} is already in the queue!`);
+            return message.channel.send(`${userToAdd}, you are already in the queue!`)
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         if (queue.length >= maxSlots) {
-            return message.channel.send(`The queue is full! (${maxSlots} players max)`);
+            return message.channel.send(`The queue is full! (${maxSlots} players max)`)
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         queue.push({ id: userToAdd.id, joinTime: Date.now() });
-        message.channel.send(`${userToAdd.tag} has been added to the queue!`);
-        sendQueueEmbed(message, "Current Queue:");
+        await message.channel.send(`${userToAdd} has been added to the queue!`);
+        await sendQueueEmbed(message, "Current Queue:");
+        return;
     }
 
     if (message.content.startsWith('!remove')) {
         const userToRemove = message.mentions.users.first() || message.guild.members.cache.get(message.content.split(' ')[1]);
-        if (!userToRemove) return message.channel.send("Please mention a user or provide a valid user ID.");
+        if (!userToRemove) {
+            return message.channel.send("Please mention a user or provide a valid user ID.")
+                .then(msg => setTimeout(() => msg.delete(), 5000));
+        }
 
         const index = queue.findIndex(player => player.id === userToRemove.id);
         if (index === -1) {
-            return message.channel.send(`${userToRemove.tag} is not in the queue!`);
+            return message.channel.send(`${userToRemove} is not in the queue!`)
+                .then(msg => setTimeout(() => msg.delete(), 5000));
         }
 
         queue.splice(index, 1);
-        message.channel.send(`${userToRemove.tag} has been removed from the queue!`);
-        sendQueueEmbed(message, "Current Queue:");
+        await message.channel.send(`${userToRemove} has been removed from the queue!`);
+        await sendQueueEmbed(message, "Current Queue:");
+        return;
     }
 });
 
@@ -190,7 +206,7 @@ async function fetchElo(playerId) {
         await page.goto(playerUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
         const elo = await page.evaluate(() => {
-            // Try multiple ways to find ELO in case the page structure changes
+            // Try multiple ways to find ELO
             const eloElement = document.querySelector('.elo-score') || 
                              document.querySelector('[class*="elo"]') ||
                              Array.from(document.querySelectorAll('*'))
@@ -218,8 +234,7 @@ async function fetchElo(playerId) {
     }
 }
 
-function sendQueueEmbed(message) {
-    // ... (keep your existing sendQueueEmbed implementation)
+function sendQueueEmbed(message, title = "Current Queue") {
     const team1 = [];
     const team2 = [];
 
@@ -245,7 +260,8 @@ function sendQueueEmbed(message) {
 
     const embed = new EmbedBuilder()
         .setColor(0x00AE86)
-        .setDescription(`Current queue **${queue.length} / ${maxSlots}**`)
+        .setTitle(title)
+        .setDescription(`**${queue.length} / ${maxSlots} players**`)
         .addFields(
             { name: 'Team 1', value: team1.join('\n'), inline: true },
             { name: '\u200B', value: '\u200B', inline: true },
@@ -253,15 +269,14 @@ function sendQueueEmbed(message) {
         )
         .setTimestamp();
 
-    message.channel.send({ embeds: [embed] });
+    return message.channel.send({ embeds: [embed] });
 }
 
 function formatQueueTime(joinTime) {
     const currentTime = Date.now();
-    const timeInQueue = currentTime - joinTime; // Time in milliseconds
-    const minutes = Math.floor(timeInQueue / 60000); // Convert to minutes
-    return `${minutes}m`; // Return the time in minutes
-   
+    const timeInQueue = currentTime - joinTime;
+    const minutes = Math.floor(timeInQueue / 60000);
+    return `${minutes}m`;
 }
 
 client.login(process.env.DISCORD_TOKEN);
