@@ -184,6 +184,7 @@ client.on('messageCreate', async message => {
 async function fetchElo(playerId) {
     let browser;
     try {
+        // Launch Puppeteer with more reliable settings
         browser = await puppeteer.launch({
             headless: true,
             args: [
@@ -195,50 +196,88 @@ async function fetchElo(playerId) {
                 '--no-zygote',
                 '--single-process',
                 '--disable-gpu'
-            ]
+            ],
+            timeout: 60000
         });
 
         const page = await browser.newPage();
+        
+        // Set realistic viewport and user agent
+        await page.setViewport({ width: 1280, height: 800 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        await page.setDefaultNavigationTimeout(30000);
+        
+        // Set longer timeouts
+        await page.setDefaultNavigationTimeout(60000);
+        await page.setDefaultTimeout(30000);
 
         const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
-        await page.goto(playerUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        
+        console.log(`Fetching ELO from: ${playerUrl}`); // Debug log
+        
+        // Navigate to page with multiple wait conditions
+        await page.goto(playerUrl, {
+            waitUntil: ['domcontentloaded', 'networkidle0'],
+            timeout: 60000
+        });
 
-        // Get the entire page content as text
+        // Wait a bit for dynamic content to load
+        await page.waitForTimeout(2000);
+
+        // METHOD 1: Try direct regex on page content first
         const pageContent = await page.content();
+        const directRegex = /ELO Score:\s*([\d,]+)/i;
+        const directMatch = pageContent.match(directRegex);
         
-        // Use regex to find the ELO score
-        const eloRegex = /ELO Score:\s*(\d+)/i;
-        const match = pageContent.match(eloRegex);
-        
-        if (match && match[1]) {
-            return match[1];
+        if (directMatch && directMatch[1]) {
+            return directMatch[1].replace(',', ''); // Remove commas if present
         }
-        
-        // Alternative method if the above fails
+
+        // METHOD 2: Try evaluating in page context with multiple selectors
         const elo = await page.evaluate(() => {
-            // Search through all text nodes in the document
+            // Try to find by common class names or data attributes
+            const possibleSelectors = [
+                '[class*="elo"]',
+                '[class*="rating"]',
+                '[class*="score"]',
+                '.player-stats',
+                '.stat-value',
+                '.profile-stats'
+            ];
+
+            // Check each selector for ELO information
+            for (const selector of possibleSelectors) {
+                const elements = Array.from(document.querySelectorAll(selector));
+                for (const el of elements) {
+                    const text = el.textContent || '';
+                    const match = text.match(/ELO Score:\s*([\d,]+)/i);
+                    if (match) return match[1].replace(',', '');
+                }
+            }
+
+            // Fallback: Search all text nodes
+            const textNodes = [];
             const walker = document.createTreeWalker(
                 document.body,
                 NodeFilter.SHOW_TEXT,
                 null,
                 false
             );
-            
+
             let node;
             while (node = walker.nextNode()) {
                 if (node.textContent.includes('ELO Score:')) {
-                    const match = node.textContent.match(/ELO Score:\s*(\d+)/i);
-                    if (match && match[1]) {
-                        return match[1];
-                    }
+                    const match = node.textContent.match(/ELO Score:\s*([\d,]+)/i);
+                    if (match) return match[1].replace(',', '');
                 }
             }
+
             return null;
         });
 
         if (!elo) {
+            // Save screenshot for debugging
+            await page.screenshot({ path: `debug_${playerId}.png` });
+            console.log('Saved debug screenshot');
             throw new Error('ELO not found on page');
         }
 
