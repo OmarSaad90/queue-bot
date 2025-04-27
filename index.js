@@ -19,7 +19,7 @@ const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('Bot is running!');
-});
+}); 
 
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
@@ -170,8 +170,10 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
+        // Launch Puppeteer with Chrome path
         browser = await puppeteer.launch({
-            headless: 'new',
+            headless: true,
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',  // Path to your chrome.exe
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
@@ -183,7 +185,7 @@ async function fetchElo(playerId) {
             return Array.from(tables).map(table => table.innerText.trim());
         });
 
-        console.log("Fetched tables for player:", playerProfile, debug);  // <<--- ADD THIS
+        console.log("Fetched tables for player:", playerProfile, debug);  // <<--- ADD THIS to log fetched tables
 
         const eloScore = await page.evaluate(() => {
             const tables = document.querySelectorAll('.column article table');
@@ -211,6 +213,7 @@ async function fetchElo(playerId) {
         if (browser) await browser.close().catch(console.error);
     }
 }
+
 
 
 client.on('interactionCreate', async interaction => {
