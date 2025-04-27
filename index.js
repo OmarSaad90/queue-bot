@@ -1,3 +1,5 @@
+console.log(`✅ Bot is starting fresh at ${new Date().toISOString()}`);
+
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
