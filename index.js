@@ -171,9 +171,8 @@ async function fetchElo(playerId) {
         }
 
         // Launch Puppeteer with Chrome path
-        browser = await puppeteer.launch({
+        const browser = await puppeteer.launch({
             headless: true,
-            executablePath: '/usr/bin/google-chrome',  // Path to your chrome.exe
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
