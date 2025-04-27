@@ -169,12 +169,19 @@ async function fetchElo(playerId) {
         }
 
         browser = await puppeteer.launch({
-            headless: 'new', // or true
+            headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
         const page = await browser.newPage();
         await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`, { waitUntil: 'networkidle2' });
+
+        const debug = await page.evaluate(() => {
+            const tables = document.querySelectorAll('.column article table');
+            return Array.from(tables).map(table => table.innerText.trim());
+        });
+
+        console.log("Fetched tables for player:", playerProfile, debug);  // <<--- ADD THIS
 
         const eloScore = await page.evaluate(() => {
             const tables = document.querySelectorAll('.column article table');
@@ -202,6 +209,7 @@ async function fetchElo(playerId) {
         if (browser) await browser.close().catch(console.error);
     }
 }
+
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
