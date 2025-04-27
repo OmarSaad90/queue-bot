@@ -24,6 +24,13 @@ app.listen(port, () => {
 });
 
 const queue = [];
+// Hardcoded mapping: Discord ID -> FirstbloodGaming Profile ID
+const playerProfiles = {
+    "266263595346558976": "hellhound",
+    "288476136210694146": "chrisbeaman",
+    // Add more mappings here
+};
+
 const maxSlots = 10;
 const cooldowns = new Map();
 
@@ -156,6 +163,12 @@ async function handleRemovePlayer(message) {
 async function fetchElo(playerId) {
     let browser;
     try {
+        // Find the mapped player profile name
+        const playerProfile = playerProfiles[playerId];
+        if (!playerProfile) {
+            throw new Error(`No profile mapping for playerId ${playerId}`);
+        }
+
         browser = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -163,14 +176,13 @@ async function fetchElo(playerId) {
 
         const page = await browser.newPage();
         await page.setDefaultNavigationTimeout(30000);
-        
-        const playerUrl = `https://stats.firstbloodgaming.com/player/${playerId}`;
+
+        const playerUrl = `https://stats.firstbloodgaming.com/player/${playerProfile}`;
         await page.goto(playerUrl, { waitUntil: 'networkidle2' });
 
-        // Get raw page content and use direct regex
         const content = await page.content();
         const match = content.match(/ELO Score:\s*(\d+)/i);
-        
+
         if (!match || !match[1]) {
             throw new Error('ELO not found on page');
         }
@@ -183,6 +195,7 @@ async function fetchElo(playerId) {
         if (browser) await browser.close().catch(console.error);
     }
 }
+
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
   
