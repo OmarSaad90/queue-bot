@@ -163,34 +163,41 @@ async function handleRemovePlayer(message) {
 async function fetchElo(playerId) {
     let browser;
     try {
-        // Find the mapped player profile name
         const playerProfile = playerProfiles[playerId];
         if (!playerProfile) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
         browser = await puppeteer.launch({
-            headless: true,
+            headless: 'new', // or true
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
         const page = await browser.newPage();
-        await page.setDefaultNavigationTimeout(30000);
+        await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`, { waitUntil: 'networkidle2' });
 
-        const playerUrl = `https://stats.firstbloodgaming.com/player/${playerProfile}`;
-        await page.goto(playerUrl, { waitUntil: 'networkidle2' });
+        const eloScore = await page.evaluate(() => {
+            const tables = document.querySelectorAll('.column article table');
+            if (tables.length >= 2) {
+                const secondTable = tables[1];
+                const rows = secondTable.querySelectorAll('tr');
+                for (let row of rows) {
+                    const text = row.innerText.trim();
+                    if (text.toLowerCase().includes('elo score')) {
+                        const parts = text.split(':');
+                        if (parts.length > 1) {
+                            return parts[1].trim();
+                        }
+                    }
+                }
+            }
+            return null;
+        });
 
-        const content = await page.content();
-        const match = content.match(/ELO Score:\s*(\d+)/i);
-
-        if (!match || !match[1]) {
-            throw new Error('ELO not found on page');
-        }
-
-        return match[1];
+        return eloScore || 'N/A';
     } catch (error) {
         console.error(`ELO fetch failed for ${playerId}:`, error);
-        throw error;
+        return 'Error';
     } finally {
         if (browser) await browser.close().catch(console.error);
     }
