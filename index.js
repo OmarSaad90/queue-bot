@@ -190,11 +190,12 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        browser = await puppeteer.launch({
-            executablePath,
+        const browser = await puppeteer.launch({
+            executablePath: process.env.RENDER ? '/usr/bin/chromium-browser' : 'C:\\Users\\omars\\.cache\\puppeteer\\chrome\\win64-135.0.7049.114\\chrome-win64\\chrome.exe',
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
+        
 
         const page = await browser.newPage();
         await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`, { waitUntil: 'networkidle2' });
