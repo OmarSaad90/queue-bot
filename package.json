@@ -4,8 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "install-chromium": "apt-get update && apt-get install -y chromium",
-    "postinstall": "npx puppeteer install"
+    "install-chromium": "apt-get update && apt-get install -y chromium"
   },
   "dependencies": {
     "axios": "^1.9.0",
