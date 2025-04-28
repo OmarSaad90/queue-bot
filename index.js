@@ -41,6 +41,12 @@ process.on('SIGINT', async () => {
     await client.destroy();
     process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    console.log('Gracefully shutting down from SIGTERM...');
+    await client.destroy();
+    process.exit(0);
+});
+
 
 const queue = [];
 const playerProfiles = {
