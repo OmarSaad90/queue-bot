@@ -4,7 +4,16 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const puppeteer = require('puppeteer');
-const executablePath = process.env.RENDER ? '/usr/bin/chromium' : 'C:\\Users\\omars\\.cache\\puppeteer\\chrome\\win64-135.0.7049.114\\chrome-win64\\chrome.exe';
+
+// Detect platform and set the correct Chromium path
+let executablePath;
+if (process.env.RENDER) {
+    executablePath = '/usr/bin/chromium';
+} else if (process.platform === 'win32') {
+    executablePath = 'C:\\Program Files\\Chromium\\Application\\chrome.exe';
+} else {
+    executablePath = undefined; // fallback to default
+}
 
 const client = new Client({
     intents: [
@@ -20,19 +29,20 @@ const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('Bot is running!');
-}); 
+});
 
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
 });
+
+// Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('Gracefully shutting down...');
-    await client.destroy();  // Assuming `client` is your Discord bot client.
-    process.exit(0); // Exit the process.
-  });
+    await client.destroy();
+    process.exit(0);
+});
 
 const queue = [];
-// Hardcoded mapping: Discord ID -> FirstbloodGaming Profile ID
 const playerProfiles = {
     "266263595346558976": "hellhound",
     "288476136210694146": "chrisbeaman",
@@ -42,11 +52,10 @@ const playerProfiles = {
 const maxSlots = 10;
 const cooldowns = new Map();
 
-// SINGLE messageCreate listener
+// Single messageCreate listener
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Cooldown system to prevent duplicate processing
     if (!cooldowns.has(message.author.id)) {
         cooldowns.set(message.author.id, new Map());
     }
@@ -63,7 +72,6 @@ client.on('messageCreate', async message => {
     timestamps.set(message.content, now);
     setTimeout(() => timestamps.delete(message.content), cooldownAmount);
 
-    // Command router
     try {
         if (message.content === '!q') return await handleQueueJoin(message);
         if (message.content === '!start') return await handleGameStart(message);
@@ -167,7 +175,7 @@ async function handleRemovePlayer(message) {
     await sendQueueEmbed(message);
 }
 
-// Improved ELO fetcher
+// ELO fetcher
 async function fetchElo(playerId) {
     let browser;
     try {
@@ -176,9 +184,8 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        // Launch Puppeteer with Chrome path
-        const browser = await puppeteer.launch({
-            executablePath: executablePath,
+        browser = await puppeteer.launch({
+            executablePath,
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
@@ -191,7 +198,7 @@ async function fetchElo(playerId) {
             return Array.from(tables).map(table => table.innerText.trim());
         });
 
-        console.log("Fetched tables for player:", playerProfile, debug);  // <<--- ADD THIS to log fetched tables
+        console.log("Fetched tables for player:", playerProfile, debug);
 
         const eloScore = await page.evaluate(() => {
             const tables = document.querySelectorAll('.column article table');
@@ -220,35 +227,32 @@ async function fetchElo(playerId) {
     }
 }
 
-
-
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
-  
-    if (interaction.commandName === 'ping') {
-      await interaction.reply('Pong!');
-    }
-  });
 
-// Queue display function
+    if (interaction.commandName === 'ping') {
+        await interaction.reply('Pong!');
+    }
+});
+
+// Queue display
 async function sendQueueEmbed(message) {
     const team1 = [];
     const team2 = [];
 
-    // Fill team slots
     for (let i = 0; i < 5; i++) {
         const player = queue[i];
-        team1.push(player 
-            ? `${(i+1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
-            : `${(i+1).toString().padStart(2, '0')}. Empty`
+        team1.push(player
+            ? `${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
+            : `${(i + 1).toString().padStart(2, '0')}. Empty`
         );
     }
 
     for (let i = 5; i < 10; i++) {
         const player = queue[i];
-        team2.push(player 
-            ? `${(i+1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
-            : `${(i+1).toString().padStart(2, '0')}. Empty`
+        team2.push(player
+            ? `${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
+            : `${(i + 1).toString().padStart(2, '0')}. Empty`
         );
     }
 
