@@ -4,6 +4,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const puppeteer = require('puppeteer');
+const executablePath = process.env.RENDER ? '/usr/bin/chromium' : 'C:\\Users\\omars\\.cache\\puppeteer\\chrome\\win64-135.0.7049.114\\chrome-win64\\chrome.exe';
 
 const client = new Client({
     intents: [
@@ -24,6 +25,11 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
 });
+process.on('SIGINT', async () => {
+    console.log('Gracefully shutting down...');
+    await client.destroy();  // Assuming `client` is your Discord bot client.
+    process.exit(0); // Exit the process.
+  });
 
 const queue = [];
 // Hardcoded mapping: Discord ID -> FirstbloodGaming Profile ID
@@ -172,7 +178,7 @@ async function fetchElo(playerId) {
 
         // Launch Puppeteer with Chrome path
         const browser = await puppeteer.launch({
-            executablePath: 'C:\\Users\\omars\\.cache\\puppeteer\\chrome\\win64-135.0.7049.114\\chrome-win64\\chrome.exe',
+            executablePath: executablePath,
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
