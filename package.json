@@ -4,8 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "install-chromium": "curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o google-chrome.deb && sudo dpkg -i google-chrome.deb && sudo apt --fix-broken install -y",
-    "postinstall": "puppeteer install"
+    "install-chromium": "curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o google-chrome.deb && sudo dpkg -i google-chrome.deb && sudo apt --fix-broken install -y"
   },
   "dependencies": {
     "axios": "^1.9.0",
@@ -15,5 +14,4 @@
     "express": "^5.1.0",
     "puppeteer": "^24.7.2"
   }
-  
 }
