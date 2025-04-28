@@ -8,11 +8,14 @@ const puppeteer = require('puppeteer');
 // Detect platform and set the correct Chromium path
 let executablePath;
 if (process.env.RENDER) {
-    executablePath = '/usr/bin/chromium';
+    // For Render (Linux)
+    executablePath = '/usr/bin/chromium-browser'; // or '/usr/bin/chromium' based on Render environment
 } else if (process.platform === 'win32') {
+    // For local Windows
     executablePath = 'C:\\Program Files\\Chromium\\Application\\chrome.exe';
 } else {
-    executablePath = undefined; // fallback to default
+    // Default to Puppeteer's bundled Chromium for local non-Windows platforms
+    executablePath = puppeteer.executablePath();  // Automatically uses Puppeteer's bundled Chromium
 }
 
 const client = new Client({
@@ -46,7 +49,28 @@ process.on('SIGTERM', async () => {
     await client.destroy();
     process.exit(0);
 });
+async function shutdownBot() {
+    try {
+        // Closing the Puppeteer browser gracefully
+        if (browser) {
+            console.log('Closing Puppeteer browser...');
+            await browser.close();
+        }
 
+        // Disconnect the Discord client
+        console.log('Destroying Discord client...');
+        await client.destroy();
+        
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+    }
+
+    // Add a timeout to ensure the process exits
+    setTimeout(() => {
+        console.log('Forcefully shutting down after timeout');
+        process.exit(0);
+    }, 5000); // Force shutdown after 5 seconds if it's still running
+}
 
 const queue = [];
 const playerProfiles = {
@@ -190,22 +214,15 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        const browser = await puppeteer.launch({
-            executablePath: process.env.RENDER ? '/usr/bin/chromium-browser' : 'C:\\Users\\omars\\.cache\\puppeteer\\chrome\\win64-135.0.7049.114\\chrome-win64\\chrome.exe',
+        // Launch Puppeteer with the correct executable path
+        browser = await puppeteer.launch({
+            executablePath,  // Use the calculated path based on environment
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
-        
 
         const page = await browser.newPage();
         await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`, { waitUntil: 'networkidle2' });
-
-        const debug = await page.evaluate(() => {
-            const tables = document.querySelectorAll('.column article table');
-            return Array.from(tables).map(table => table.innerText.trim());
-        });
-
-        console.log("Fetched tables for player:", playerProfile, debug);
 
         const eloScore = await page.evaluate(() => {
             const tables = document.querySelectorAll('.column article table');
