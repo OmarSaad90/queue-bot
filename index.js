@@ -3,7 +3,7 @@ console.log(`✅ Bot is starting fresh at ${new Date().toISOString()}`);
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const puppeteer = require('puppeteer'); 
+const puppeteer = require('puppeteer');
 
 const client = new Client({
     intents: [
@@ -14,20 +14,19 @@ const client = new Client({
     ]
 });
 
-// Web server for Render "keep-alive"
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('Bot is running!');
-});
+}); 
 
 app.listen(port, () => {
-    console.log(`🌐 Web server is listening on port ${port}`);
+    console.log(`Web server is listening on port ${port}`);
 });
 
 const queue = [];
-
+// Hardcoded mapping: Discord ID -> FirstbloodGaming Profile ID
 const playerProfiles = {
     "266263595346558976": "hellhound",
     "288476136210694146": "chrisbeaman",
@@ -41,7 +40,7 @@ const cooldowns = new Map();
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Cooldown system
+    // Cooldown system to prevent duplicate processing
     if (!cooldowns.has(message.author.id)) {
         cooldowns.set(message.author.id, new Map());
     }
@@ -71,8 +70,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// === Command Handlers ===
-
+// Command handlers
 async function handleQueueJoin(message) {
     if (queue.some(player => player.id === message.author.id)) {
         return message.channel.send(`${message.author}, you're already in queue!`)
@@ -163,8 +161,7 @@ async function handleRemovePlayer(message) {
     await sendQueueEmbed(message);
 }
 
-// === ELO Fetcher ===
-
+// Improved ELO fetcher
 async function fetchElo(playerId) {
     let browser;
     try {
@@ -173,8 +170,9 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        browser = await puppeteer.launch({
-            headless: 'new',
+        // Launch Puppeteer with Chrome path
+        const browser = await puppeteer.launch({
+            headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
@@ -186,7 +184,7 @@ async function fetchElo(playerId) {
             return Array.from(tables).map(table => table.innerText.trim());
         });
 
-        console.log("Fetched tables for player:", playerProfile, debug);
+        console.log("Fetched tables for player:", playerProfile, debug);  // <<--- ADD THIS to log fetched tables
 
         const eloScore = await page.evaluate(() => {
             const tables = document.querySelectorAll('.column article table');
@@ -215,35 +213,35 @@ async function fetchElo(playerId) {
     }
 }
 
-// === Slash Command Example ===
+
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
   
     if (interaction.commandName === 'ping') {
-        await interaction.reply('Pong!');
+      await interaction.reply('Pong!');
     }
-});
+  });
 
-// === Queue Embed Display ===
-
+// Queue display function
 async function sendQueueEmbed(message) {
     const team1 = [];
     const team2 = [];
 
+    // Fill team slots
     for (let i = 0; i < 5; i++) {
         const player = queue[i];
-        team1.push(player
-            ? `${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
-            : `${(i + 1).toString().padStart(2, '0')}. Empty`
+        team1.push(player 
+            ? `${(i+1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
+            : `${(i+1).toString().padStart(2, '0')}. Empty`
         );
     }
 
     for (let i = 5; i < 10; i++) {
         const player = queue[i];
-        team2.push(player
-            ? `${(i + 1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
-            : `${(i + 1).toString().padStart(2, '0')}. Empty`
+        team2.push(player 
+            ? `${(i+1).toString().padStart(2, '0')}. <@${player.id}> (${formatQueueTime(player.joinTime)})`
+            : `${(i+1).toString().padStart(2, '0')}. Empty`
         );
     }
 
@@ -264,7 +262,5 @@ function formatQueueTime(joinTime) {
     const minutes = Math.floor((Date.now() - joinTime) / 60000);
     return `${minutes}m`;
 }
-
-// === Login ===
 
 client.login(process.env.DISCORD_TOKEN);
