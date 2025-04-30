@@ -3,9 +3,7 @@ console.log(`✅ Bot is starting fresh at ${new Date().toISOString()}`);
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
-
+const { chromium } = require('playwright'); // Import Playwright
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -185,7 +183,7 @@ async function handleRemovePlayer(message) {
     await sendQueueEmbed(message);
 }
 
-// ELO fetcher using Axios and Cheerio
+// ELO fetcher using Playwright
 async function fetchElo(playerId) {
     try {
         const playerProfile = playerProfiles[playerId];
@@ -193,29 +191,27 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        // Adding headers to the request
-        const response = await axios.get(`https://stats.firstbloodgaming.com/player/${playerProfile}`, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Encoding': 'gzip, deflate, br',
-            }
-        });
-        
-        const $ = cheerio.load(response.data);
+        const browser = await chromium.launch({ headless: true });
+        const page = await browser.newPage();
+        await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`);
 
-        const eloScore = $('table').eq(1).find('tr').toArray().map(row => {
-            const text = $(row).text().trim();
-            if (text.toLowerCase().includes('elo score')) {
-                const parts = text.split(':');
-                if (parts.length > 1) {
-                    return parts[1].trim();
+        const elo = await page.$eval('table', table => {
+            const rows = table.querySelectorAll('tr');
+            let eloScore = 'N/A';
+            rows.forEach(row => {
+                const text = row.innerText.trim();
+                if (text.toLowerCase().includes('elo score')) {
+                    const parts = text.split(':');
+                    if (parts.length > 1) {
+                        eloScore = parts[1].trim();
+                    }
                 }
-            }
-            return null;
-        }).find(elo => elo !== null);
+            });
+            return eloScore;
+        });
 
-        return eloScore || 'N/A';
+        await browser.close();
+        return elo || 'N/A';
     } catch (error) {
         console.error(`ELO fetch failed for ${playerId}:`, error);
         return 'Error';
