@@ -18,6 +18,7 @@ if (process.env.RENDER) {
     // Local non-Windows (e.g. Mac/Linux)
     executablePath = puppeteer.executablePath();
 }
+console.log("Executable Path: ", executablePath);
 
 
 const client = new Client({
