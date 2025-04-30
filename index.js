@@ -3,23 +3,8 @@ console.log(`✅ Bot is starting fresh at ${new Date().toISOString()}`);
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const express = require('express');
-const puppeteer = require('puppeteer');
-
-// Detect platform and set the correct Chromium path
-let executablePath;
-
-if (process.env.RENDER) {
-    // Let Puppeteer use the bundled Chromium on Render
-    executablePath = puppeteer.executablePath();
-} else if (process.platform === 'win32') {
-    // Local Windows
-    executablePath = 'C:\\Program Files\\Chromium\\Application\\chrome.exe';
-} else {
-    // Local non-Windows (e.g. Mac/Linux)
-    executablePath = puppeteer.executablePath();
-}
-console.log("Executable Path: ", executablePath);
-
+const axios = require('axios');
+const cheerio = require('cheerio');
 
 const client = new Client({
     intents: [
@@ -40,11 +25,13 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
 });
+
 let currentBotInstance;
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
     currentBotInstance = client; // Set the current bot instance
 });
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Shutting down old bot instance...');
@@ -63,22 +50,7 @@ process.on('SIGINT', async () => {
     }
     process.exit(0);  // Ensure the process exits after the shutdown
 });
-async function shutdownBot() {
-     try {
-        if (browser) {
-            await browser.close();
-        }
-        await client.destroy();
-    } catch (error) {
-        console.error('Error during shutdown:', error);
-    }
 
-    // Add a timeout to ensure the process exits
-    setTimeout(() => {
-        console.log('Forcefully shutting down after timeout');
-        process.exit(0);
-    }, 5000); // Force shutdown after 5 seconds if it's still running
-}
 let browser;
 const queue = [];
 const playerProfiles = {
@@ -213,49 +185,32 @@ async function handleRemovePlayer(message) {
     await sendQueueEmbed(message);
 }
 
-// ELO fetcher
+// ELO fetcher using Axios and Cheerio
 async function fetchElo(playerId) {
-    let browser;
     try {
         const playerProfile = playerProfiles[playerId];
         if (!playerProfile) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        // Launch Puppeteer with the correct executable path
-       browser = await puppeteer.launch({
-             // Use the calculated path based on environment
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        const response = await axios.get(`https://stats.firstbloodgaming.com/player/${playerProfile}`);
+        const $ = cheerio.load(response.data);
 
-        const page = await browser.newPage();
-        await page.goto(`https://stats.firstbloodgaming.com/player/${playerProfile}`, { waitUntil: 'networkidle2' });
-
-        const eloScore = await page.evaluate(() => {
-            const tables = document.querySelectorAll('.column article table');
-            if (tables.length >= 2) {
-                const secondTable = tables[1];
-                const rows = secondTable.querySelectorAll('tr');
-                for (let row of rows) {
-                    const text = row.innerText.trim();
-                    if (text.toLowerCase().includes('elo score')) {
-                        const parts = text.split(':');
-                        if (parts.length > 1) {
-                            return parts[1].trim();
-                        }
-                    }
+        const eloScore = $('table').eq(1).find('tr').toArray().map(row => {
+            const text = $(row).text().trim();
+            if (text.toLowerCase().includes('elo score')) {
+                const parts = text.split(':');
+                if (parts.length > 1) {
+                    return parts[1].trim();
                 }
             }
             return null;
-        });
+        }).find(elo => elo !== null);
 
         return eloScore || 'N/A';
     } catch (error) {
         console.error(`ELO fetch failed for ${playerId}:`, error);
         return 'Error';
-    } finally {
-        if (browser) await browser.close().catch(console.error);
     }
 }
 
