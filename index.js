@@ -7,16 +7,18 @@ const puppeteer = require('puppeteer');
 
 // Detect platform and set the correct Chromium path
 let executablePath;
+
 if (process.env.RENDER) {
-    // For Render (Linux)
-    executablePath = '/usr/bin/chromium-browser'; // or '/usr/bin/chromium' based on Render environment
+    // Let Puppeteer use the bundled Chromium on Render
+    executablePath = puppeteer.executablePath();
 } else if (process.platform === 'win32') {
-    // For local Windows
+    // Local Windows
     executablePath = 'C:\\Program Files\\Chromium\\Application\\chrome.exe';
 } else {
-    // Default to Puppeteer's bundled Chromium for local non-Windows platforms
-    executablePath = puppeteer.executablePath();  // Automatically uses Puppeteer's bundled Chromium
+    // Local non-Windows (e.g. Mac/Linux)
+    executablePath = puppeteer.executablePath();
 }
+
 
 const client = new Client({
     intents: [
@@ -215,7 +217,7 @@ async function fetchElo(playerId) {
         }
 
         // Launch Puppeteer with the correct executable path
-        browser = await puppeteer.launch({
+        const browser = await puppeteer.launch({
             executablePath,  // Use the calculated path based on environment
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
