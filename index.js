@@ -41,28 +41,23 @@ app.listen(port, () => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('Gracefully shutting down...');
-    await client.destroy();
-    process.exit(0);
-});
 process.on('SIGTERM', async () => {
-    console.log('Gracefully shutting down from SIGTERM...');
-    await client.destroy();
+    console.log('Shutting down on SIGTERM...');
+    await shutdownBot();
+    process.exit(0); // Force kill right after cleanup
+});
+
+process.on('SIGINT', async () => {
+    console.log('Shutting down on SIGINT...');
+    await shutdownBot();
     process.exit(0);
 });
 async function shutdownBot() {
-    try {
-        // Closing the Puppeteer browser gracefully
+     try {
         if (browser) {
-            console.log('Closing Puppeteer browser...');
             await browser.close();
         }
-
-        // Disconnect the Discord client
-        console.log('Destroying Discord client...');
         await client.destroy();
-        
     } catch (error) {
         console.error('Error during shutdown:', error);
     }
