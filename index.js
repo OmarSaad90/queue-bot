@@ -39,18 +39,28 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Web server is listening on port ${port}`);
 });
-
+let currentBotInstance;
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+    currentBotInstance = client; // Set the current bot instance
+});
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-    console.log('Shutting down on SIGTERM...');
-    await shutdownBot();
-    process.exit(0); // Force kill right after cleanup
+    console.log('SIGTERM received. Shutting down old bot instance...');
+    if (currentBotInstance) {
+        await currentBotInstance.destroy();
+        console.log('Old bot instance destroyed.');
+    }
+    process.exit(0);  // Ensure the process exits after the shutdown
 });
 
 process.on('SIGINT', async () => {
-    console.log('Shutting down on SIGINT...');
-    await shutdownBot();
-    process.exit(0);
+    console.log('SIGINT received. Shutting down old bot instance...');
+    if (currentBotInstance) {
+        await currentBotInstance.destroy();
+        console.log('Old bot instance destroyed.');
+    }
+    process.exit(0);  // Ensure the process exits after the shutdown
 });
 async function shutdownBot() {
      try {
@@ -68,7 +78,7 @@ async function shutdownBot() {
         process.exit(0);
     }, 5000); // Force shutdown after 5 seconds if it's still running
 }
-
+let browser;
 const queue = [];
 const playerProfiles = {
     "266263595346558976": "hellhound",
@@ -212,7 +222,7 @@ async function fetchElo(playerId) {
         }
 
         // Launch Puppeteer with the correct executable path
-        const browser = await puppeteer.launch({
+       browser = await puppeteer.launch({
             executablePath,  // Use the calculated path based on environment
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
