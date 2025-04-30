@@ -193,7 +193,15 @@ async function fetchElo(playerId) {
             throw new Error(`No profile mapping for playerId ${playerId}`);
         }
 
-        const response = await axios.get(`https://stats.firstbloodgaming.com/player/${playerProfile}`);
+        // Adding headers to the request
+        const response = await axios.get(`https://stats.firstbloodgaming.com/player/${playerProfile}`, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Encoding': 'gzip, deflate, br',
+            }
+        });
+        
         const $ = cheerio.load(response.data);
 
         const eloScore = $('table').eq(1).find('tr').toArray().map(row => {
