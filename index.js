@@ -224,7 +224,7 @@ async function fetchElo(playerId) {
 
         // Launch Puppeteer with the correct executable path
        browser = await puppeteer.launch({
-            executablePath,  // Use the calculated path based on environment
+             // Use the calculated path based on environment
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
