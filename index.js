@@ -256,9 +256,16 @@ async function handleAddPlayer(message) {
 
 
 async function handleRemovePlayer(message) {
-    const playerId = message.content.split(' ')[1];
+    let playerId = message.content.split(' ')[1];
+
     if (!playerId) {
         return message.channel.send("Please provide a valid player ID to remove.");
+    }
+
+    // Extract ID from mention if necessary
+    const mentionMatch = playerId.match(/^<@!?(\d+)>$/);
+    if (mentionMatch) {
+        playerId = mentionMatch[1];
     }
 
     const index = queue.findIndex(p => p.id === playerId);
@@ -270,6 +277,7 @@ async function handleRemovePlayer(message) {
     queue.splice(index, 1);
     await sendQueueEmbed(message);
 }
+
 
 async function sendQueueEmbed(message) {
     const team1 = [], team2 = [];
