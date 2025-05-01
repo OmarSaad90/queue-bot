@@ -1,6 +1,5 @@
 import dotenv from 'dotenv';
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
-import express from 'express';
 import { chromium } from 'playwright';
 
 dotenv.config();
@@ -14,22 +13,18 @@ const client = new Client({
     ]
 });
 
-const app = express();
-const port = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-    res.send('Bot is running!');
-});
-
-app.listen(port, () => {
-    console.log(`Web server is listening on port ${port}`);
-});
-
 let currentBotInstance;
 let browser;
 let context;
 let pagePool = []; // Pool for reusing pages
 let eloCache = {}; // Cache to store player ELOs
+
+const usernameOverrides = {
+    "natass7": "picatris",
+    "pudgeyjase":"souljase",
+    "readingisfun":"wilson",
+    "prizeddotas":"prizeddota"
+};
 
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}`);
@@ -44,22 +39,6 @@ client.once('ready', async () => {
     }
 });
 
-// Graceful shutdown
-async function shutdown() {
-    console.log('Shutting down bot...');
-    if (currentBotInstance) {
-        await currentBotInstance.destroy();
-        console.log('Bot instance destroyed.');
-    }
-    if (browser) {
-        await browser.close();
-        console.log('Browser closed.');
-    }       
-    process.exit(0);
-}
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
 
 const queue = [];
 const maxSlots = 10;
@@ -169,7 +148,7 @@ async function handleGameStart(message) {
 
     const { team1, team2 } = balanceTeams(playersWithElo);
     
-    // 50% chance to swap player display (without changing team labels)
+    // 50% chance to swap player display
     const shouldSwapDisplay = Math.random() < 0.5;
     const displayTeam1 = shouldSwapDisplay ? team2 : team1;
     const displayTeam2 = shouldSwapDisplay ? team1 : team2;
@@ -187,12 +166,12 @@ async function handleGameStart(message) {
         .setTitle('Current Game')
         .addFields(
             {
-                name: 'Team 1', // Label stays fixed
+                name: 'Team 1',
                 value: sortedDisplayTeam1.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
                 inline: true
             },
             {
-                name: 'Team 2', // Label stays fixed
+                name: 'Team 2',
                 value: sortedDisplayTeam2.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
                 inline: true
             },
@@ -262,7 +241,7 @@ async function handleAddPlayer(message) {
 
         // Add the player to the queue using their ID
         queue.push({ id: user.id, joinTime: Date.now() });
-        added.push(`${user.username} (${user.tag})`);
+        added.push(`${user.username}`);
     });
 
     let reply = '';
@@ -348,7 +327,7 @@ function getTierRole(member) {
 
 function formatQueueTime(joinTime) {
     const minutes = Math.floor((Date.now() - joinTime) / 60000);
-    return `${minutes}m`;
+    return `${minutes} m`;
 }
 
 function balanceTeams(playersWithEloAndTier) {
@@ -413,98 +392,64 @@ function calculateHybridScore(player) {
     const normalizedELO = normalizeELO(player.elo);
     return normalizedTier + normalizedELO;
 }
-
 async function fetchElo(username) {
-    // Normalize username for URL
-    const normalizedUsername = username.trim().toLowerCase().replace(/\s+/g, '');
-    const url = `https://stats.firstbloodgaming.com/player/${normalizedUsername}`;
-    
+    if (!username || username.trim() === '') return 1000;
+
+    // Check overrided names first
+    const overrideName = usernameOverrides[username] || username;
+
+    const cleanUsername = overrideName.trim().replace(/\s+/g, '');
+    const urlVariations = [
+        `https://stats.firstbloodgaming.com/player/${cleanUsername}`,
+        `https://stats.firstbloodgaming.com/player/${cleanUsername.toLowerCase()}`,
+        `https://stats.firstbloodgaming.com/player/${encodeURIComponent(cleanUsername)}`
+    ];
+
     let page;
-    let attempts = 0;
-    const maxAttempts = 2;
     let elo = null;
 
-    while (attempts < maxAttempts && elo === null) {
-        attempts++;
+    for (const url of urlVariations) {
         try {
-            // Get page from pool or create new one
             page = pagePool.pop() || await context.newPage();
-            
-            // Configure page for better reliability
-            await page.setDefaultTimeout(30000);
-            await page.setDefaultNavigationTimeout(30000);
+            await page.setDefaultTimeout(10000);
+            await page.setDefaultNavigationTimeout(10000);
 
-            console.log(`Attempt ${attempts}: Fetching ELO for ${username} (normalized: ${normalizedUsername})`);
-            
-            // Navigate with multiple wait options
-            await page.goto(url, {
-                waitUntil: 'networkidle',
-                timeout: 30000
+            console.log(`Fetching ELO for ${username} at ${url}`);
+
+            await page.goto(url, { 
+                waitUntil: 'domcontentloaded', 
+                timeout: 10000 
             });
 
-            // Wait for content with multiple fallbacks
-            try {
-                await Promise.race([
-                    page.waitForSelector('table', { state: 'attached', timeout: 15000 }),
-                    page.waitForSelector('text=/player not found/i', { timeout: 5000 }),
-                    page.waitForSelector('text=/elo score/i', { timeout: 5000 })
-                ]);
-            } catch (waitError) {
-                console.log(`Wait selector timeout for ${username}, proceeding anyway`);
-            }
+            const notFound = await page.evaluate(() => 
+                /player not found/i.test(document.body.textContent)
+            );
+            if (notFound) continue;
 
-            // Extract ELO with more robust selectors
             elo = await page.evaluate(() => {
-                // Check for "player not found" message first
-                if (document.body.textContent.match(/player not found/i)) {
-                    return null;
-                }
-
-                // Search all tables for ELO score
-                const tables = Array.from(document.querySelectorAll('table'));
-                for (const table of tables) {
-                    const rows = Array.from(table.querySelectorAll('tr'));
-                    for (const row of rows) {
-                        const cells = Array.from(row.querySelectorAll('td'));
-                        if (cells.length === 2) {
-                            const key = cells[0].textContent.trim().toLowerCase();
-                            const value = cells[1].textContent.trim();
-                            if (key.includes('elo') && key.includes('score')) {
-                                const numValue = value.replace(/[^0-9]/g, '');
-                                return numValue ? parseInt(numValue, 10) : null;
-                            }
-                        }
-                    }
-                }
-                return null;
+                const eloRow = [...document.querySelectorAll('tr')].find(tr => {
+                    const tds = tr.querySelectorAll('td');
+                    return tds.length === 2 && /elo score/i.test(tds[0].textContent);
+                });
+                return eloRow ? parseInt(eloRow.querySelector('td:last-child').textContent.replace(/\D/g, '')) || null : null;
             });
 
-            if (elo !== null) {
-                console.log(`Successfully fetched ELO for ${username}: ${elo}`);
+            if (elo && elo !== 1000) {
+                console.log(`Found valid ELO for ${username}: ${elo}`);
                 break;
             }
 
         } catch (error) {
-            console.error(`Attempt ${attempts} failed for ${username}:`, error);
-            // Close the page if it's potentially corrupted
-            if (page) {
-                try {
-                    await page.close();
-                } catch (e) {
-                    console.error('Error closing page:', e);
-                }
-                page = null;
-            }
+            console.error(`Fetch failed for ${url}:`, error.message);
         } finally {
-            // Return page to pool if it's still good
             if (page && !page.isClosed()) {
                 pagePool.push(page);
             }
         }
     }
 
-    // Return default only after all attempts fail
     return elo !== null ? elo : 1000;
 }
+
 
 client.login(process.env.BOT_TOKEN);
