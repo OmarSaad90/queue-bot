@@ -258,6 +258,9 @@ async function handleGameStart(message) {
     );
 
 await message.channel.send({ embeds: [embed] });
+await message.channel.send('`\nNow playing\n`' +
+    `${playersWithElo.map(p => `<@${p.id}>`).join(' ')}\n` +
+    'Please host the game: `FBG DotA`');
 queue.length = 0;
 }
 
