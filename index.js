@@ -23,7 +23,28 @@ const usernameOverrides = {
     "natass7": "picatris",
     "pudgeyjase":"souljase",
     "readingisfun":"wilson",
-    "prizeddotas":"prizeddota"
+    "prizeddotas":"prizeddota",
+    "blacklame556":"voo.doo.1"
+};
+const playerRealms = {
+    "fieryfox": "EU",
+    "hellhound0": "EU",
+    "johnnycage5858": "EU",
+    "stormico": "EU",
+    "bash5865": "NA",
+    "tomoya3404": "NA",
+    "tailofred": "EU",
+    "rolando7433": "EU",
+    "kdbebrks": "EU",
+    "mumix.": "NA",
+    "markus96_phuphew":"EU",
+    "asyl4ik.":"EU",
+    "readingisfun":"NA",
+    "pojebanyskun":"EU",
+    "iym5195":"EU",
+    "fightordie0906":"EU",
+    "mrksndvl":"EU"
+
 };
 
 client.once('ready', async () => {
@@ -68,12 +89,59 @@ client.on('messageCreate', async message => {
         if (message.content === '!start1') return await handleGameStart(message);
         if (message.content === '!delete') return await handleQueueLeave(message);
         if (message.content === '!current') return await sendQueueEmbed(message);
+        if (message.content.startsWith('!swap1')) return await handleSwap(message);
         if (message.content.startsWith('!add1')) return await handleAddPlayer(message);
         if (message.content.startsWith('!remove1')) return await handleRemovePlayer(message);
     } catch (error) {
         console.error('Command error:', error);
     }
 });
+
+
+async function handleSwap(message) {
+    console.log('Swap command received');
+    const mentioned = [...message.mentions.users.values()];
+
+    // Ensure exactly two users are mentioned
+    if (mentioned.length !== 2) {
+        return message.channel.send("Please mention exactly two users to swap!")
+            .then(m => setTimeout(() => m.delete(), 5000));
+    }
+
+    const [user1, user2] = mentioned;
+
+    // Find player1 in the queue
+    const player1Index = queue.findIndex(p => p.id === user1.id);
+    const player2Index = queue.findIndex(p => p.id === user2.id);
+
+    // If player1 is in the queue, remove them from the queue
+    if (player1Index === -1) {
+        return message.channel.send(`${user1.username} is not in the queue!`)
+            .then(m => setTimeout(() => m.delete(), 5000));
+    }
+
+    // If player2 is already in the queue, we cannot swap them in
+    if (player2Index !== -1) {
+        return message.channel.send(`${user2.username} is already in the queue!`)
+            .then(m => setTimeout(() => m.delete(), 5000));
+    }
+
+    // Now remove player1 from the queue
+    queue.splice(player1Index, 1);
+
+    // Add player2 into the queue
+    queue.push({
+        id: user2.id,
+        joinTime: Date.now(),
+        username: user2.username.toLowerCase(),
+        realm: playerRealms[user2.username.toLowerCase()] || 'Unknown'
+    });
+
+    // Send confirmation and update the queue display
+    await message.channel.send(`Swapped ${user1.username} with ${user2.username}!`);
+    await sendQueueEmbed(message);  // Update the queue display
+}
+
 
 async function handleGameStart(message) {
     if (queue.length < 2) {
@@ -83,71 +151,74 @@ async function handleGameStart(message) {
 
     const playersWithElo = await Promise.all(queue.map(async player => {
         try {
+            const user = await client.users.fetch(player.id);
+            const username = user.username.toLowerCase();
+
+            let member;
+            let nickname;
+            try {
+                member = await message.guild.members.fetch(player.id);
+                nickname = member.displayName || username;
+            } catch (err) {
+                console.error(`Member fetch error for ${username}:`, err);
+                nickname = username;
+            }
+
             let elo = eloCache[player.id];
-            let member = null;
-            let username, nickname;
-    
             if (!elo) {
-                const user = await client.users.fetch(player.id);
-                try {
-                    member = await message.guild.members.fetch(player.id);
-                } catch (err) {
-                    console.error(`Member fetch error: ${err}`);
-                }
-    
-                username = user.username;
-                nickname = member?.displayName || username;
-    
+                // Fetch ELOs for players when the game starts
                 const [eloUsername, eloNickname] = await Promise.allSettled([
                     fetchElo(username),
                     fetchElo(nickname)
                 ]);
-                
-                console.log('ELO fetch results:', {
-                    username,
-                    eloUsername: eloUsername.status === 'fulfilled' ? eloUsername.value : 'failed',
-                    nickname,
-                    eloNickname: eloNickname.status === 'fulfilled' ? eloNickname.value : 'failed'
-                });
-    
+
                 const validNicknameElo = eloNickname.status === 'fulfilled' && eloNickname.value !== 1000;
                 const validUsernameElo = eloUsername.status === 'fulfilled' && eloUsername.value !== 1000;
-    
+
                 elo = validNicknameElo ? eloNickname.value
                     : validUsernameElo ? eloUsername.value
                     : 1000;
-    
+
                 eloCache[player.id] = elo;
-            } else {
-                try {
-                    member = await message.guild.members.fetch(player.id);
-                } catch (err) {
-                    console.error(`Member fetch error for cached player: ${err}`);
-                }
             }
-    
+
             const tier = member ? getTierRole(member) : 3;
-            return { 
-                id: player.id, 
-                name: member?.displayName || username || player.id, 
-                elo, 
+            const realm = playerRealms[username] || 'Unknown';
+
+            // Calculate hybrid score with ELO and tier
+            const hybridScore = calculateHybridScore({ elo, tier });
+
+            return {
+                id: player.id,
+                name: nickname,
+                username,
+                elo,
                 tier,
-                hybridScore: calculateHybridScore({ elo, tier })
+                hybridScore,
+                realm
             };
         } catch (error) {
             console.error(`Player processing error:`, error);
-            return { 
-                id: player.id, 
-                name: player.id, 
-                elo: 1000, 
+            return {
+                id: player.id,
+                name: player.id,
+                elo: 1000,
                 tier: 3,
-                hybridScore: calculateHybridScore({ elo: 1000, tier: 3 })
+                hybridScore: calculateHybridScore({ elo: 1000, tier: 3 }),
+                realm: 'Unknown'
             };
         }
     }));
 
+    // Determine Majority Realm and Counts
+    const realmData = determineMajorityRealm(playersWithElo); // Get counts and majority
+    const realm = realmData.majority;
+    const euCount = realmData.EU;
+    const naCount = realmData.NA;
+
+    // Balance the teams
     const { team1, team2 } = balanceTeams(playersWithElo);
-    
+
     // 50% chance to swap player display
     const shouldSwapDisplay = Math.random() < 0.5;
     const displayTeam1 = shouldSwapDisplay ? team2 : team1;
@@ -161,48 +232,99 @@ async function handleGameStart(message) {
     const team1Hybrid = team1.reduce((sum, p) => sum + p.hybridScore, 0);
     const team2Hybrid = team2.reduce((sum, p) => sum + p.hybridScore, 0);
 
+    // Create the embed
     const embed = new EmbedBuilder()
-        .setColor(0x3498db)
-        .setTitle('Current Game')
-        .addFields(
-            {
-                name: 'Team 1',
-                value: sortedDisplayTeam1.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
-                inline: true
-            },
-            {
-                name: 'Team 2',
-                value: sortedDisplayTeam2.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
-                inline: true
-            },
-            {
-                name: 'Team Balance',
-                value: `**Team 1 Value:** ${team1Hybrid.toFixed(1)}\n` +
-                       `**Team 2 Value:** ${team2Hybrid.toFixed(1)}\n` +
-                       `**Difference:** ${Math.abs(team1Hybrid - team2Hybrid).toFixed(1)}`,
-                inline: false
-            }
-        );
+    .setColor(0x3498db)
+    .setTitle('Current Game')
+    .addFields(
+        {
+            name: 'Team 1',
+            value: sortedDisplayTeam1.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
+            inline: true
+        },
+        {
+            name: 'Team 2',
+            value: sortedDisplayTeam2.map(p => `• <@${p.id}> (${p.elo})`).join('\n'),
+            inline: true
+        },
+        {
+            name: 'Server Realm',
+            value: `EU: ${euCount}\nNA: ${naCount}\n**Resulted Realm:** ${realm}\n` + 
+                   `**Team 1 Value:** ${team1Hybrid.toFixed(1)}\n` +
+                   `**Team 2 Value:** ${team2Hybrid.toFixed(1)}\n` +
+                   `**Difference:** ${Math.abs(team1Hybrid - team2Hybrid).toFixed(1)}`,
+            inline: false
+        }
+    );
 
-    await message.channel.send({ embeds: [embed] });
-    queue.length = 0;
+await message.channel.send({ embeds: [embed] });
+queue.length = 0;
 }
 
 
+// Function to determine Majority Realm and Counts
+function determineMajorityRealm(players) {
+    const realmCounts = { EU: 0, NA: 0 };
+
+    players.forEach(player => {
+        if (player.realm === 'EU') realmCounts.EU++;
+        else if (player.realm === 'NA') realmCounts.NA++;
+    });
+
+    let majority;
+    if (realmCounts.EU > realmCounts.NA) {
+        majority = 'EU';
+    } else if (realmCounts.NA > realmCounts.EU) {
+        majority = 'NA';
+    } else {
+        majority = Math.random() < 0.5 ? 'EU' : 'NA';
+    }
+
+    return {
+        majority,
+        EU: realmCounts.EU,
+        NA: realmCounts.NA
+    };
+}
+
+
+
+
+
 async function handleQueueJoin(message) {
+    // Check if the player is already in the queue
     if (queue.find(p => p.id === message.author.id)) {
         return message.channel.send(`${message.author}, you're already in queue!`)
             .then(m => setTimeout(() => m.delete(), 5000));
     }
 
+    // Check if the queue is full
     if (queue.length >= maxSlots) {
         return message.channel.send(`Queue is full! (${maxSlots}/10)`)
             .then(m => setTimeout(() => m.delete(), 5000));
     }
 
-    queue.push({ id: message.author.id, joinTime: Date.now() });
+    // Add player to the queue (without ELO fetch or hybrid score calculation)
+    const username = message.author.username.toLowerCase();
+    const realm = playerRealms[username] || 'Unknown';
+    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+    const tier = getTierRole(member);
+
+    queue.push({
+        id: message.author.id,
+        username,
+        realm,
+        tier,
+        joinTime: Date.now(),
+        hybridScore: 0 // Hybrid score set to 0 on join
+    });
+
     await sendQueueEmbed(message);
 }
+
+
+
+
 
 async function handleQueueLeave(message) {
     const index = queue.findIndex(p => p.id === message.author.id);
@@ -216,6 +338,7 @@ async function handleQueueLeave(message) {
 }
 
 async function handleAddPlayer(message) {
+    // Check if there are any mentioned users
     const mentionedUsers = message.mentions.users;
     if (mentionedUsers.size === 0) {
         return message.channel.send("Please mention at least one user to add!")
@@ -226,8 +349,12 @@ async function handleAddPlayer(message) {
     const alreadyQueued = [];
     const queueFull = [];
 
+    // Process each mentioned user
     mentionedUsers.forEach(user => {
-        // Check if the player is already in the queue
+        const username = user.username.toLowerCase();
+        const realm = playerRealms[username] || 'Unknown';
+
+        // Check if the user is already in the queue
         if (queue.find(p => p.id === user.id)) {
             alreadyQueued.push(`${user.username} (${user.tag})`);
             return;
@@ -239,11 +366,20 @@ async function handleAddPlayer(message) {
             return;
         }
 
-        // Add the player to the queue using their ID
-        queue.push({ id: user.id, joinTime: Date.now() });
+        // Add player to the queue without fetching ELO or calculating hybrid score
+        queue.push({
+            id: user.id,
+            joinTime: Date.now(),
+            username,
+            realm,
+            tier: 'Unknown', // Default to 'Unknown' tier
+            hybridScore: 0  // Hybrid score set to 0 on add
+        });
+
         added.push(`${user.username}`);
     });
 
+    // Prepare and send the reply message
     let reply = '';
     if (added.length > 0) reply += `✅ Added: ${added.join(', ')}\n`;
     if (alreadyQueued.length > 0) reply += `⚠️ Already in queue: ${alreadyQueued.join(', ')}\n`;
@@ -252,6 +388,9 @@ async function handleAddPlayer(message) {
     if (reply) await message.channel.send(reply);
     await sendQueueEmbed(message);
 }
+
+
+
 
 
 
@@ -290,9 +429,13 @@ async function sendQueueEmbed(message) {
             const member = await message.guild.members.fetch(player.id).catch(() => null);
             const mention = `<@${player.id}>`;
             const time = formatQueueTime(player.joinTime);
-            const tier = getTierRole(member);
+            const username = member?.user?.username?.toLowerCase() || '';
+            const realm = player.realm || 'Unknown';
 
-            line = `${(i + 1).toString().padStart(2, '0')}. ${mention} [${time}] (${tier})`;
+            const tier = getTierRole(member);
+            const hybridScore = player.hybridScore || 0;  // Get hybrid score from player object
+
+            line = `${(i + 1).toString().padStart(2, '0')}. ${mention} [${time}] (${tier}) - ${realm}`;
         } else {
             line = `${(i + 1).toString().padStart(2, '0')}. Empty`;
         }
@@ -332,6 +475,7 @@ function getTierRole(member) {
 
     return 'No Tier';
 }
+
 
 function formatQueueTime(joinTime) {
     const minutes = Math.floor((Date.now() - joinTime) / 60000);
