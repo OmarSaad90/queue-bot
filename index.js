@@ -43,8 +43,15 @@ const playerRealms = {
     "pojebanyskun":"EU",
     "iym5195":"EU",
     "fightordie0906":"EU",
-    "mrksndvl":"EU"
-
+    "mrksndvl":"EU",
+    "peachtr333":"EU",
+    "pudgeyjase":"EU",
+    "fantom_9999":"NA",
+    "stinkypez":"NA",
+    "sleepybearfm":"NA",
+    "upamecanoooooo.":"EU",
+    "chrisbeaman":"NA",
+    "taz4816":"EU"
 };
 
 client.once('ready', async () => {
@@ -249,7 +256,7 @@ async function handleGameStart(message) {
         },
         {
             name: 'Server Realm',
-            value: `EU: ${euCount}\nNA: ${naCount}\n**Resulted Realm:** ${realm}\n` + 
+            value: `EU: ${euCount}\nNA: ${naCount}\n**Resulted Realm:** ${realm}\n\n` + 
                    `**Team 1 Value:** ${team1Hybrid.toFixed(1)}\n` +
                    `**Team 2 Value:** ${team2Hybrid.toFixed(1)}\n` +
                    `**Difference:** ${Math.abs(team1Hybrid - team2Hybrid).toFixed(1)}`,
@@ -289,10 +296,6 @@ function determineMajorityRealm(players) {
         NA: realmCounts.NA
     };
 }
-
-
-
-
 
 async function handleQueueJoin(message) {
     // Check if the player is already in the queue
@@ -391,11 +394,6 @@ async function handleAddPlayer(message) {
     if (reply) await message.channel.send(reply);
     await sendQueueEmbed(message);
 }
-
-
-
-
-
 
 async function handleRemovePlayer(message) {
     let playerId = message.content.split(' ')[1];
