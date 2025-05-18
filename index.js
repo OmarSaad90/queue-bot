@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import { chromium } from 'playwright';
-
+import fetch from 'node-fetch';
 dotenv.config();
 
 const client = new Client({
@@ -51,7 +51,11 @@ const playerRealms = {
     "sleepybearfm":"NA",
     "upamecanoooooo.":"EU",
     "chrisbeaman":"NA",
-    "taz4816":"EU"
+    "taz4816":"EU",
+    "onetwost3p":"EU",
+    "boristheblade1033":"EU",
+    "antbug":"NA",
+    "syd.berna":"EU"
 };
 
 client.once('ready', async () => {
@@ -75,6 +79,7 @@ const cooldowns = new Map();
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // Cooldown handling
     if (!cooldowns.has(message.author.id)) {
         cooldowns.set(message.author.id, new Map());
     }
@@ -92,17 +97,48 @@ client.on('messageCreate', async message => {
     setTimeout(() => timestamps.delete(message.content), cooldownAmount);
 
     try {
-        if (message.content === '!queue') return await handleQueueJoin(message);
-        if (message.content === '!start1') return await handleGameStart(message);
-        if (message.content === '!delete') return await handleQueueLeave(message);
-        if (message.content === '!current') return await sendQueueEmbed(message);
-        if (message.content.startsWith('!swap1')) return await handleSwap(message);
-        if (message.content.startsWith('!add1')) return await handleAddPlayer(message);
-        if (message.content.startsWith('!remove1')) return await handleRemovePlayer(message);
+        const content = message.content.trim();
+
+        if (content === '!queue') return await handleQueueJoin(message);
+        if (content === '!start1') return await handleGameStart(message);
+        if (content === '!delete') return await handleQueueLeave(message);
+        if (content === '!current') return await sendQueueEmbed(message);
+        if (content.startsWith('!swap1')) return await handleSwap(message);
+        if (content.startsWith('!add1')) return await handleAddPlayer(message);
+        if (content.startsWith('!remove1')) return await handleRemovePlayer(message);
+
+        if (content.startsWith('!stats1')) {
+            const mention = message.mentions.users.first();
+            const args = content.split(/\s+/);
+
+            // Get target username from mention, typed arg, or fallback to author
+            const targetUsername = mention?.username || args[1] || message.author.username;
+
+            const stats = await fetchPlayerStats(String(targetUsername));
+
+            if (!stats) {
+                return message.reply("Couldn't fetch stats for that player.");
+            }
+
+            const statsText = 
+`📊 Stats for ${stats.username}
+────────────────────────────
+ELO Score : ${stats.elo}
+Games     : ${stats.games}
+K/D/A     : ${stats.kda}
+C/D       : ${stats.cd}
+Rank      : ${stats.rank}
+Rating    : ${stats.rating}
+`;
+message.channel.send(`\`\`\`text\n${statsText}\`\`\``);
+        }
+
     } catch (error) {
         console.error('Command error:', error);
+        return message.reply('An error occurred while processing your command.');
     }
 });
+
 
 
 async function handleSwap(message) {
@@ -603,6 +639,94 @@ async function fetchElo(username) {
 
     return elo !== null ? elo : 1000;
 }
+async function fetchPlayerStats(username) {
+    if (!username || username.trim() === '') return null;
+
+    const overrideName = usernameOverrides[username] || username;
+    const cleanUsername = overrideName.trim().replace(/\s+/g, '');
+
+    const urlVariations = [
+        `https://stats.firstbloodgaming.com/player/${cleanUsername}`,
+        `https://stats.firstbloodgaming.com/player/${cleanUsername.toLowerCase()}`,
+        `https://stats.firstbloodgaming.com/player/${encodeURIComponent(cleanUsername)}`
+    ];
+
+    let page;
+    let stats = {
+        elo: 1000,
+        games: 'N/A',
+        kda: 'N/A',
+        cd: 'N/A',
+        rank: 'N/A',
+        rating: 'N/A'
+
+    };
+
+    for (const url of urlVariations) {
+        try {
+            page = pagePool.pop() || await context.newPage();
+            await page.setDefaultTimeout(10000);
+            await page.setDefaultNavigationTimeout(10000);
+
+            console.log(`Fetching stats for ${username} at ${url}`);
+            await page.goto(url, {
+                waitUntil: 'domcontentloaded',
+                timeout: 10000
+            });
+
+            const notFound = await page.evaluate(() =>
+                /player not found/i.test(document.body.textContent)
+            );
+            if (notFound) continue;
+
+            const extractedStats = await page.evaluate(() => {
+                const rows = [...document.querySelectorAll('tr')];
+                const getStat = (label) => {
+                    const row = rows.find(tr => {
+                        const tds = tr.querySelectorAll('td');
+                        return tds.length === 2 && new RegExp(label, 'i').test(tds[0].textContent);
+                    });
+                    return row ? row.querySelector('td:last-child').textContent.trim() : 'N/A';
+                };
+ const ratingElement = document.querySelector('.rating') || document.querySelector('#rating') || document.querySelector('.player-rating');
+    const rating = ratingElement ? ratingElement.textContent.trim() : 'N/A';
+
+                return {
+                    elo: parseInt(getStat('elo score').replace(/\D/g, '')) || 1000,
+                    games: getStat('games'),
+                    kda: getStat('k/d/a'),
+                    cd: getStat('c/d'),
+                    rank: getStat('rank'),
+                    rating
+                };
+            });
+
+            stats = extractedStats;
+            break;
+
+        } catch (error) {
+            console.error(`Failed to fetch stats for ${username} at ${url}:`, error.message);
+        } finally {
+            if (page && !page.isClosed()) {
+                pagePool.push(page);
+            }
+        }
+    }
+
+    // Return null if no stats found at all (optional)
+    if (!stats) return null;
+
+    return {
+        username,
+        elo: stats.elo,
+        games: stats.games,
+        kda: stats.kda,
+        cd: stats.cd,
+        rank: stats.rank,
+        rating: stats.rating || 'N/A'
+    };
+}
+
 
 
 client.login(process.env.BOT_TOKEN);
