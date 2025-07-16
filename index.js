@@ -30,17 +30,27 @@ const playerRealms = {
     "fieryfox": "EU",
     "hellhound0": "EU",
     "johnnycage5858": "EU",
+    "chewbmomo":"EU",
+    "redhawk8443":"EU",
+    "mipastew":"NA",    
     "stormico": "EU",
     "bash5865": "NA",
     "tomoya3404": "NA",
     "tailofred": "EU",
     "rolando7433": "EU",
+    "quanying":"EU",
     "kdbebrks": "EU",
     "mumix.": "NA",
     "markus96_phuphew":"EU",
     "asyl4ik.":"EU",
     "readingisfun":"NA",
+    "ethamuffin":"NA",
+    "rumarak":"EU",
+    "1010.1010.1010":"NA",
+    "jaguar0010":"NA",
+    "xl3osk":"NA",
     "pojebanyskun":"EU",
+    "danishpride":"EU",
     "iym5195":"EU",
     "fightordie0906":"EU",
     "mrksndvl":"EU",
@@ -49,13 +59,15 @@ const playerRealms = {
     "fantom_9999":"NA",
     "stinkypez":"NA",
     "sleepybearfm":"NA",
+    "dotaflintstone_72381":"EU",
     "upamecanoooooo.":"EU",
     "chrisbeaman":"NA",
     "taz4816":"EU",
     "onetwost3p":"EU",
     "boristheblade1033":"EU",
     "antbug":"NA",
-    "syd.berna":"EU"
+    "syd.berna":"EU",
+    "born.sinner30":"NA"
 };
 
 client.once('ready', async () => {
@@ -99,23 +111,34 @@ client.on('messageCreate', async message => {
     try {
         const content = message.content.trim();
 
-        if (content === '!queue') return await handleQueueJoin(message);
-        if (content === '!start1') return await handleGameStart(message);
-        if (content === '!delete') return await handleQueueLeave(message);
-        if (content === '!current') return await sendQueueEmbed(message);
-        if (content.startsWith('!swap1')) return await handleSwap(message);
-        if (content.startsWith('!add1')) return await handleAddPlayer(message);
-        if (content.startsWith('!remove1')) return await handleRemovePlayer(message);
+        if (content === '!q') return await handleQueueJoin(message);
+        if (content === '!start') return await handleGameStart(message);
+        if (content === '!del') return await handleQueueLeave(message);
+        if (content === '!rg') return await sendQueueEmbed(message);
+        if (content === '!gays') return await tagFrostless(message);
+        if (content === '!upa') return await upa(message);
+        if (content === '!admins') return await listAdmins(message);
+        if (content.startsWith('!swap')) return await handleSwap(message);
+        if (content.startsWith('!add')) return await handleAddPlayer(message);
+        if (content.startsWith('!remove')) return await handleRemovePlayer(message);
 
-        if (content.startsWith('!stats1')) {
+        if (content.startsWith('!stats')) {
             const mention = message.mentions.users.first();
             const args = content.split(/\s+/);
 
             // Get target username from mention, typed arg, or fallback to author
-            const targetUsername = mention?.username || args[1] || message.author.username;
+            const targetUser = mention || 
+                      (args[1] ? await client.users.fetch(args[1]).catch(() => null) : null) || 
+                      message.author;
+                      let displayName = null;
+    try {
+        const member = await message.guild.members.fetch(targetUser.id);
+        displayName = member.displayName;
+    } catch (e) {
+        // Couldn't fetch member, just use username
+    }
 
-            const stats = await fetchPlayerStats(String(targetUsername));
-
+             const stats = await fetchPlayerStats(targetUser.username.toLowerCase(), displayName);
             if (!stats) {
                 return message.reply("Couldn't fetch stats for that player.");
             }
@@ -138,8 +161,63 @@ message.channel.send(`\`\`\`text\n${statsText}\`\`\``);
         return message.reply('An error occurred while processing your command.');
     }
 });
+async function upa(message) {
+    message.channel.send("SAY UPAMECANOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+}
+async function tagFrostless(message) {
+    try {
+        const FROSTLESS_ID = '385481386003267590'; // REPLACE WITH ACTUAL USER ID
+        
+        // Try by ID first (most reliable)
+        let frostlessUser;
+        try {
+            frostlessUser = await message.client.users.fetch(FROSTLESS_ID);
+        } catch (error) {
+            console.log('Could not fetch by ID, falling back to other methods');
+        }
 
+        // If ID method failed, try other methods
+        if (!frostlessUser) {
+            frostlessUser = await findFrostless(message.guild);
+        }
 
+        if (!frostlessUser) {
+            return message.channel.send("Cannot find");
+        }
+
+        // Send the ping with a fun message
+        await message.channel.send(`🏳️‍🌈✨${frostlessUser}✨🏳️‍🌈`);
+
+    } catch (error) {
+        console.error('Error in !gays command:', error);
+        message.channel.send("Cannot find");
+    }
+}
+
+async function findFrostless(guild) {
+    // Fallback 1: Search by username (kdbebrks)
+    let user = guild.members.cache.find(m => 
+        m.user.username.toLowerCase() === 'kdbebrks'
+    )?.user;
+
+    // Fallback 2: Search by display name (frostless)
+    if (!user) {
+        user = guild.members.cache.find(m => 
+            m.displayName.toLowerCase().includes('frostless')
+        )?.user;
+    }
+
+    // Fallback 3: Force fetch all members and search
+    if (!user) {
+        await guild.members.fetch(); // Fetch all members
+        user = guild.members.cache.find(m => 
+            m.user.username.toLowerCase() === 'kdbebrks' ||
+            m.displayName.toLowerCase().includes('frostless')
+        )?.user;
+    }
+
+    return user;
+}
 
 async function handleSwap(message) {
     console.log('Swap command received');
@@ -185,7 +263,46 @@ async function handleSwap(message) {
     await sendQueueEmbed(message);  // Update the queue display
 }
 
+async function listAdmins(message) {
+    try {
+        if (!message.guild) {
+            return message.channel.send("This command only works in a server channel.");
+        }
 
+        // Get all members with the Dota-Admin role
+        const adminRole = message.guild.roles.cache.find(role => 
+            role.name.toLowerCase() === 'dota-admin'
+        );
+
+        if (!adminRole) {
+            return message.channel.send("No 'Dota-Admin' role found on this server.");
+        }
+
+        // Fetch all members (might need to fetch if cache isn't complete)
+        await message.guild.members.fetch();
+        
+        const admins = adminRole.members.map(member => member.user);
+
+        if (admins.length === 0) {
+            return message.channel.send("No users have the 'Dota-Admin' role.");
+        }
+
+        // Create a message listing all admins
+        const adminList = admins.map(admin => `• ${admin.username} (${admin})`).join('\n');
+        
+        const embed = new EmbedBuilder()
+            .setColor(0xFFA500) // Orange color for admin list
+            .setTitle('Dota Admins')
+            .setDescription(adminList)
+            .setFooter({ text: `Total Admins: ${admins.length}` });
+
+        await message.channel.send({ embeds: [embed] });
+
+    } catch (error) {
+        console.error('Error listing admins:', error);
+        message.channel.send("An error occurred while trying to list admins.");
+    }
+}
 async function handleGameStart(message) {
     if (queue.length < 2) {
         return message.channel.send("At least 2 players are required to start a game.")
@@ -301,7 +418,7 @@ async function handleGameStart(message) {
     );
 
 await message.channel.send({ embeds: [embed] });
-await message.channel.send('`\nNow playing\n`' +
+await message.channel.send('`Now playing\n`' +
     `${playersWithElo.map(p => `<@${p.id}>`).join(' ')}\n` +
     'Please host the game: `FBG DotA`');
 queue.length = 0;
@@ -639,16 +756,49 @@ async function fetchElo(username) {
 
     return elo !== null ? elo : 1000;
 }
-async function fetchPlayerStats(username) {
+
+async function fetchPlayerStats(username, displayName = null) {
     if (!username || username.trim() === '') return null;
 
+    // Apply username overrides first
     const overrideName = usernameOverrides[username] || username;
     const cleanUsername = overrideName.trim().replace(/\s+/g, '');
+    
+    // Clean display name if provided
+    const cleanDisplayName = displayName ? displayName.trim().replace(/\s+/g, '') : null;
+
+    // Try username first
+    let stats = await fetchStatsFromUrlVariations(cleanUsername);
+    
+    // If no stats found with username, try display name (if different)
+    if ((!stats || stats.elo === 1000) && cleanDisplayName && cleanDisplayName !== cleanUsername) {
+        const displayNameStats = await fetchStatsFromUrlVariations(cleanDisplayName);
+        if (displayNameStats && displayNameStats.elo !== 1000) {
+            stats = displayNameStats;
+        }
+    }
+
+    // Return null if no stats found at all
+    if (!stats) return null;
+
+    return {
+        username,
+        elo: stats.elo,
+        games: stats.games,
+        kda: stats.kda,
+        cd: stats.cd,
+        rank: stats.rank,
+        rating: stats.rating || 'N/A'
+    };
+}
+
+async function fetchStatsFromUrlVariations(name) {
+    if (!name) return null;
 
     const urlVariations = [
-        `https://stats.firstbloodgaming.com/player/${cleanUsername}`,
-        `https://stats.firstbloodgaming.com/player/${cleanUsername.toLowerCase()}`,
-        `https://stats.firstbloodgaming.com/player/${encodeURIComponent(cleanUsername)}`
+        `https://stats.firstbloodgaming.com/player/${name}`,
+        `https://stats.firstbloodgaming.com/player/${name.toLowerCase()}`,
+        `https://stats.firstbloodgaming.com/player/${encodeURIComponent(name)}`
     ];
 
     let page;
@@ -659,7 +809,6 @@ async function fetchPlayerStats(username) {
         cd: 'N/A',
         rank: 'N/A',
         rating: 'N/A'
-
     };
 
     for (const url of urlVariations) {
@@ -668,7 +817,7 @@ async function fetchPlayerStats(username) {
             await page.setDefaultTimeout(10000);
             await page.setDefaultNavigationTimeout(10000);
 
-            console.log(`Fetching stats for ${username} at ${url}`);
+            console.log(`Fetching stats at ${url}`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded',
                 timeout: 10000
@@ -688,8 +837,11 @@ async function fetchPlayerStats(username) {
                     });
                     return row ? row.querySelector('td:last-child').textContent.trim() : 'N/A';
                 };
- const ratingElement = document.querySelector('.rating') || document.querySelector('#rating') || document.querySelector('.player-rating');
-    const rating = ratingElement ? ratingElement.textContent.trim() : 'N/A';
+                
+                const ratingElement = document.querySelector('.rating') || 
+                                    document.querySelector('#rating') || 
+                                    document.querySelector('.player-rating');
+                const rating = ratingElement ? ratingElement.textContent.trim() : 'N/A';
 
                 return {
                     elo: parseInt(getStat('elo score').replace(/\D/g, '')) || 1000,
@@ -701,11 +853,16 @@ async function fetchPlayerStats(username) {
                 };
             });
 
-            stats = extractedStats;
-            break;
+            // Only accept if we found valid stats (not all N/A)
+            if (extractedStats.elo !== 1000 || 
+                extractedStats.games !== 'N/A' || 
+                extractedStats.kda !== 'N/A') {
+                stats = extractedStats;
+                break;
+            }
 
         } catch (error) {
-            console.error(`Failed to fetch stats for ${username} at ${url}:`, error.message);
+            console.error(`Failed to fetch stats at ${url}:`, error.message);
         } finally {
             if (page && !page.isClosed()) {
                 pagePool.push(page);
@@ -713,18 +870,7 @@ async function fetchPlayerStats(username) {
         }
     }
 
-    // Return null if no stats found at all (optional)
-    if (!stats) return null;
-
-    return {
-        username,
-        elo: stats.elo,
-        games: stats.games,
-        kda: stats.kda,
-        cd: stats.cd,
-        rank: stats.rank,
-        rating: stats.rating || 'N/A'
-    };
+    return stats;
 }
 
 
