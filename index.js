@@ -114,9 +114,7 @@ client.on('messageCreate', async message => {
         if (content === '!q') return await handleQueueJoin(message);
         if (content === '!start') return await handleGameStart(message);
         if (content === '!del') return await handleQueueLeave(message);
-        if (content === '!rg') return await sendQueueEmbed(message);
-        if (content === '!gays') return await tagFrostless(message);
-        if (content === '!upa') return await upa(message);
+        if (content === '!rg') return await sendQueueEmbed(message);if (content === '!upa') return await upa(message);
         if (content === '!admins') return await listAdmins(message);
         if (content.startsWith('!swap')) return await handleSwap(message);
         if (content.startsWith('!add')) return await handleAddPlayer(message);
@@ -164,60 +162,7 @@ message.channel.send(`\`\`\`text\n${statsText}\`\`\``);
 async function upa(message) {
     message.channel.send("SAY UPAMECANOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
 }
-async function tagFrostless(message) {
-    try {
-        const FROSTLESS_ID = '385481386003267590'; // REPLACE WITH ACTUAL USER ID
-        
-        // Try by ID first (most reliable)
-        let frostlessUser;
-        try {
-            frostlessUser = await message.client.users.fetch(FROSTLESS_ID);
-        } catch (error) {
-            console.log('Could not fetch by ID, falling back to other methods');
-        }
 
-        // If ID method failed, try other methods
-        if (!frostlessUser) {
-            frostlessUser = await findFrostless(message.guild);
-        }
-
-        if (!frostlessUser) {
-            return message.channel.send("Cannot find");
-        }
-
-        // Send the ping with a fun message
-        await message.channel.send(`🏳️‍🌈✨${frostlessUser}✨🏳️‍🌈`);
-
-    } catch (error) {
-        console.error('Error in !gays command:', error);
-        message.channel.send("Cannot find");
-    }
-}
-
-async function findFrostless(guild) {
-    // Fallback 1: Search by username (kdbebrks)
-    let user = guild.members.cache.find(m => 
-        m.user.username.toLowerCase() === 'kdbebrks'
-    )?.user;
-
-    // Fallback 2: Search by display name (frostless)
-    if (!user) {
-        user = guild.members.cache.find(m => 
-            m.displayName.toLowerCase().includes('frostless')
-        )?.user;
-    }
-
-    // Fallback 3: Force fetch all members and search
-    if (!user) {
-        await guild.members.fetch(); // Fetch all members
-        user = guild.members.cache.find(m => 
-            m.user.username.toLowerCase() === 'kdbebrks' ||
-            m.displayName.toLowerCase().includes('frostless')
-        )?.user;
-    }
-
-    return user;
-}
 
 async function handleSwap(message) {
     console.log('Swap command received');
